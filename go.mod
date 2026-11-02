@@ -3,7 +3,7 @@ module github.com/erizeta/qinetic
 go 1.26.0
 
 require (
-	github.com/erizeta/qilat v0.2.0
+	github.com/erizeta/qilat v0.2.1
 	github.com/quic-go/quic-go v0.64.1
 )
 
