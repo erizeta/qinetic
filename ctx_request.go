@@ -507,13 +507,14 @@ func (c *Ctx) Locals(key any, value ...any) any {
 	return value[0]
 }
 
-// Route returns the route being run, or an empty Route before any route matched.
-func (c *Ctx) Route() *Route {
+// Route returns a copy of the route being run, or the zero Route before any route matched. Changing it
+// does not change the route; its Params slice is shared and must not be modified.
+func (c *Ctx) Route() Route {
 	c.live()
 	if c.route == nil {
-		return &Route{}
+		return Route{}
 	}
-	return &c.route.info
+	return c.route.info
 }
 
 func first[T any](def []T) T {

@@ -381,15 +381,53 @@ func TestLocals(t *testing.T) {
 }
 
 func TestRouteBeforeMatch(t *testing.T) {
-	var r *Route
+	var r Route
 	app := New()
 	app.Use(func(c *Ctx) error {
 		r = c.Route()
 		return c.Next()
 	})
 	get(t, app, "GET", "/a//b") // unroutable: root middleware runs as route "/"
-	if r == nil || r.Method != "USE" || r.Path != "/" {
+	if r.Method != "USE" || r.Path != "/" {
 		t.Fatalf("Route() = %+v", r)
+	}
+}
+
+// TestRouteIsACopy checks a handler changing what c.Route returns cannot change the route for later
+// requests.
+func TestRouteIsACopy(t *testing.T) {
+	var seen []string
+	app := New()
+	app.Get("/users/:id", func(c *Ctx) error {
+		rt := c.Route()
+		seen = append(seen, rt.Path)
+		rt.Path, rt.Method = "/changed", "POST"
+		return nil
+	})
+	get(t, app, "GET", "/users/1")
+	get(t, app, "GET", "/users/2")
+	if len(seen) != 2 || seen[1] != "/users/:id" {
+		t.Fatalf("Route().Path across requests: %q", seen)
+	}
+	if r, _ := get(t, app, "GET", "/users/3"); r.StatusCode != 200 {
+		t.Fatalf("route stopped matching: %d", r.StatusCode)
+	}
+}
+
+func TestRouteAllocs(t *testing.T) {
+	if raceEnabled {
+		t.Skip("allocation counts differ under the race detector")
+	}
+	app := New()
+	var rt Route
+	app.Get("/users/:id", func(c *Ctx) error {
+		rt = c.Route()
+		return nil
+	})
+	get(t, app, "GET", "/users/1")
+	c := &Ctx{route: app.router.routes[0], app: app}
+	if n := testing.AllocsPerRun(100, func() { rt = c.Route() }); n != 0 || rt.Path != "/users/:id" {
+		t.Fatalf("Route: %v allocs/op, %+v", n, rt)
 	}
 }
 
