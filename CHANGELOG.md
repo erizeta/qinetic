@@ -29,9 +29,10 @@ lists what differs from Fiber v3.
   `ProxyHeader`, `TrustedProxies`, `JSONEncoder`, and `JSONDecoder`.
 - Request API: `Method`, `Path`, `OriginalURL`, `Host`, `Hostname`, `IP`, `IPs`, `Secure`, `Params`, `ParamsInt`,
   `Query`, `QueryInt`, `QueryBool`, `Queries`, `Get`, `Cookies`, `Body`, `BodyReader`, `FormValue`,
-  `MultipartForm`, `FormFile`, `Locals`, `Route`, and `Request`. String accessors return copies; `PeekParam`,
-  `PeekQuery`, and `PeekHeader` return `[]byte` without copying or allocating. `Body` returns an error, with
-  `ErrRequestEntityTooLarge` past `BodyLimit` (4 MiB by default).
+  `MultipartForm`, `FormFile`, `Locals`, `Route` (a copy, so handlers cannot change the route), and
+  `Request`. String accessors return copies; `PeekParam`, `PeekQuery`, and `PeekHeader` return `[]byte`
+  without copying or allocating. `Body` returns an error, with `ErrRequestEntityTooLarge` past `BodyLimit`
+  (4 MiB by default).
 - `IP`, `Secure`, `Host`, and `Hostname` believe `ProxyHeader`, `X-Forwarded-Proto`, and `X-Forwarded-Host`
   only from `TrustedProxies`. `IP` takes the rightmost untrusted address and `Host` the last forwarded host, the
   one the nearest proxy set, so clients cannot spoof them.

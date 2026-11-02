@@ -23,6 +23,7 @@ Fiber runs on fasthttp; qinetic runs on [qilat](https://github.com/erizeta/qilat
 | `c.Redirect().To(loc)` | `c.Redirect(loc, code...)` | 303 by default. Locations with control characters are refused. |
 | `c.SendFile(file, cfg)` | `c.SendFile(file)` | A name with a `..` element, as a decoded `%2F..%2F` parameter gives, fails with 400. |
 | `c.Locals(key, value...)` | Same | Keys are `any`. |
+| `c.Route()` returns `*fiber.Route` | `c.Route()` returns a `qinetic.Route` copy | Changing it cannot change the route for other requests. |
 | `c.Bind().JSON(&v)`, `.Form`, `.Query`, `.Body` | Same | Errors are 400s that never include decoder output. |
 | `c.Cookie(&fiber.Cookie{...})` | `c.Cookie(&qinetic.Cookie{...})` | A cookie net/http considers invalid is not sent, and the reason is logged. |
 | `c.Hostname()`, `c.IP()`, `c.Secure()` with `TrustProxy` | Same, with `Config.TrustedProxies` | `c.IP()` takes the rightmost untrusted address of `Config.ProxyHeader`; `c.Host()` the last `X-Forwarded-Host`. |
