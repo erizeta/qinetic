@@ -15,7 +15,7 @@ middleware.
 ## Status
 
 qinetic is pre-1.0: until v1.0.0, a minor version may change the API, with what to change listed in the
-[changelog](CHANGELOG.md). It pins qilat v0.2.0. Coming from Fiber? See
+[changelog](CHANGELOG.md). It pins qilat v0.2.1. Coming from Fiber? See
 [docs/migrating-from-fiber.md](docs/migrating-from-fiber.md).
 
 ## Installation

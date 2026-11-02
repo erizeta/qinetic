@@ -1,5 +1,5 @@
-github.com/erizeta/qilat v0.2.0 h1:taBzqPrxjUsDeO7YiNN6yse091PtkoKZpzoT6BKnhQI=
-github.com/erizeta/qilat v0.2.0/go.mod h1:cJoCKIPz3jS+vRWHmhqoa++KMt53sJIS5X/5ByQ2cvM=
+github.com/erizeta/qilat v0.2.1 h1:s64JufzcPpPMfpA0/3mBYJ0p9bX5G+bgipCdFs/d578=
+github.com/erizeta/qilat v0.2.1/go.mod h1:cJoCKIPz3jS+vRWHmhqoa++KMt53sJIS5X/5ByQ2cvM=
 github.com/quic-go/go-ossfuzz-seeds v0.1.0 h1:APacT+iIaNF6fd8AGEiN3bT/Jtkd2jz4v4TzM7MFjy0=
 github.com/quic-go/go-ossfuzz-seeds v0.1.0/go.mod h1:3IOHRbJIc+L6YKMwfDtJAM9Vj9k0YY4muhuyUYk5tbk=
 github.com/quic-go/qpack v0.6.0 h1:g7W+BMYynC1LbYLSqRt8PBg5Tgwxn214ZZR34VIOjz8=

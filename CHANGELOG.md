@@ -10,8 +10,8 @@ changes, each listed with what to change.
 ## [0.1.0] - 2026-11-02
 
 The first release: a Fiber-style framework on qilat, serving HTTP/1.1, HTTP/2, and HTTP/3 from one `App`.
-Minimum Go version: 1.26. [docs/migrating-from-fiber.md](docs/migrating-from-fiber.md) lists what differs
-from Fiber v3.
+Minimum Go version: 1.26; it requires qilat v0.2.1. [docs/migrating-from-fiber.md](docs/migrating-from-fiber.md)
+lists what differs from Fiber v3.
 
 ### Added
 
