@@ -16,8 +16,8 @@ var updateParity = flag.Bool("update-parity", false, "rewrite ../testdata/fiber_
 
 const parityFile = "../testdata/fiber_parity.json"
 
-// parityCase is one routing decision taken by Fiber. The qinetic module replays the file against its
-// router, so Fiber never enters qinetic's go.mod.
+// parityCase is one routing decision taken by Fiber. The Qinetic module replays the file against its
+// router, so Fiber never enters Qinetic's go.mod.
 type parityCase struct {
 	Pattern       string            `json:"pattern"`
 	Path          string            `json:"path"`

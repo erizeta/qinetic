@@ -11,7 +11,7 @@ import (
 	"github.com/erizeta/qinetic"
 )
 
-// qineticApp serves the baseline scenarios through qinetic's router and Ctx.
+// qineticApp serves the baseline scenarios through Qinetic's router and Ctx.
 func qineticApp() *qinetic.App {
 	app := qinetic.New()
 	app.Get("/hello", func(c *qinetic.Ctx) error {
@@ -60,7 +60,7 @@ func TestQinetic(t *testing.T) {
 	}
 }
 
-// BenchmarkQineticInmem is BenchmarkBaselineInmem through qinetic; the difference is the framework's cost.
+// BenchmarkQineticInmem is BenchmarkBaselineInmem through Qinetic; the difference is the framework's cost.
 func BenchmarkQineticInmem(b *testing.B) {
 	std := qilat.ToStd(qineticApp())
 	for _, sc := range scenarios {
@@ -78,7 +78,7 @@ func BenchmarkQineticInmem(b *testing.B) {
 	}
 }
 
-// BenchmarkQineticH1 is BenchmarkBaselineH1 through qinetic.
+// BenchmarkQineticH1 is BenchmarkBaselineH1 through Qinetic.
 func BenchmarkQineticH1(b *testing.B) {
 	addr := startQilat(b, qineticApp())
 	for _, sc := range scenarios {

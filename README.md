@@ -1,6 +1,6 @@
-# qinetic
+# Qinetic
 
-qinetic is a Go web framework with a [Fiber](https://github.com/gofiber/fiber)-style API, built on the
+Qinetic is a Go web framework with a [Fiber](https://github.com/gofiber/fiber)-style API, built on the
 [qilat](https://github.com/erizeta/qilat) HTTP engine instead of fasthttp.
 
 From qilat it inherits:
@@ -9,12 +9,12 @@ From qilat it inherits:
 - a request context that is canceled when the client disconnects;
 - an allocation-free hot path and a `net/http` adapter.
 
-qinetic adds routing with `:param` and `*` patterns, groups, a middleware chain with `c.Next()`, and ready-made
+Qinetic adds routing with `:param` and `*` patterns, groups, a middleware chain with `c.Next()`, and ready-made
 middleware.
 
 ## Status
 
-qinetic is pre-1.0: until v1.0.0, a minor version may change the API, with what to change listed in the
+Qinetic is pre-1.0: until v1.0.0, a minor version may change the API, with what to change listed in the
 [changelog](CHANGELOG.md). It pins qilat v0.2.1. Coming from Fiber? See
 [docs/migrating-from-fiber.md](docs/migrating-from-fiber.md).
 
@@ -403,12 +403,12 @@ of sending them. Bind errors are 400s that never include decoder output.
 
 ## Performance
 
-`benchmarks/` compares plain qilat (its `ServeMux` and `qilat.Chain`), qinetic, and Fiber v3.6.1 on the same
+`benchmarks/` compares plain qilat (its `ServeMux` and `qilat.Chain`), Qinetic, and Fiber v3.6.1 on the same
 scenarios and the same keep-alive HTTP/1.1 client, with 8 connections per GOMAXPROCS. In memory, the listener
 skips the kernel, so the numbers show server CPU per request; over loopback, the socket path dominates.
 Median of 5 runs on an Apple M5 (10 cores), Go 1.27.3, in ns/op:
 
-| Scenario | In memory: qilat | qinetic | Fiber | Loopback: qilat | qinetic | Fiber |
+| Scenario | In memory: qilat | Qinetic | Fiber | Loopback: qilat | Qinetic | Fiber |
 |---|---|---|---|---|---|---|
 | Plaintext | 523 | 510 | 360 | 5779 | 5881 | 6572 |
 | JSON | 479 | 565 | 408 | 5878 | 5876 | 6355 |
@@ -417,7 +417,7 @@ Median of 5 runs on an Apple M5 (10 cores), Go 1.27.3, in ns/op:
 | 5 middleware | 437 | 533 | 373 | 5906 | 5891 | 6551 |
 
 fasthttp spends less CPU per request than qilat, so Fiber leads in memory; over a real socket, in this setup,
-qilat and qinetic are ahead and qinetic costs no measurable time over qilat. Every framework allocates about
+qilat and Qinetic are ahead and Qinetic costs no measurable time over qilat. Every framework allocates about
 10 times per request here, nearly all of it in the benchmark client. On its own side, a static, parameter, or
 wildcard hello route allocates nothing beyond qilat (`TestHelloAllocs`), and route matching allocates
 nothing (`BenchmarkRouterMatch`).
@@ -432,7 +432,7 @@ cd benchmarks && go test -run '^$' -bench BenchmarkCompare -benchmem -count 5 .
 
 ## Differences from Fiber
 
-| Fiber | qinetic |
+| Fiber | Qinetic |
 |---|---|
 | fasthttp, HTTP/1.1 only | qilat: HTTP/1.1, HTTP/2, and HTTP/3 from one `App` |
 | `c.Context()` is not canceled when the client disconnects | It is, so work stops when nobody waits for it |

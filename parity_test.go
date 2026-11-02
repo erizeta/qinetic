@@ -43,7 +43,7 @@ func TestFiberParity(t *testing.T) {
 			want = map[string]string{}
 		}
 		// Fiber's fast path for a root "/*" keeps the slash that non-strict routing ignores everywhere
-		// else, including in Fiber's own "/api/*". qinetic ignores it consistently.
+		// else, including in Fiber's own "/api/*". Qinetic ignores it consistently.
 		if c.Pattern == "/*" && !c.Strict && strings.HasSuffix(want["*1"], "/") {
 			want = map[string]string{"*1": strings.TrimSuffix(want["*1"], "/")}
 		}
@@ -70,7 +70,7 @@ type orderRequest struct {
 	Allow  string   `json:"allow"`
 }
 
-// TestFiberOrder rebuilds the app recorded by benchmarks.TestFiberOrder and checks qinetic runs the same
+// TestFiberOrder rebuilds the app recorded by benchmarks.TestFiberOrder and checks Qinetic runs the same
 // handlers, in the same order, with the same status and Allow header.
 func TestFiberOrder(t *testing.T) {
 	b, err := os.ReadFile("testdata/fiber_order.json")
@@ -115,7 +115,7 @@ func TestFiberOrder(t *testing.T) {
 		}
 	}
 	for _, want := range golden.Requests {
-		// Fiber answers methods outside its list with 501 before routing; qinetic routes any method.
+		// Fiber answers methods outside its list with 501 before routing; Qinetic routes any method.
 		if want.Method == "PROPFIND" {
 			want = orderRequest{Method: want.Method, Path: want.Path, Trace: []string{"root"}, Status: 405,
 				Allow: "CONNECT, DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE"}

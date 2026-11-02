@@ -1,11 +1,11 @@
 # Migrating from Fiber
 
-qinetic follows Fiber's API closely, so most handlers move over by changing imports and a few signatures.
+Qinetic follows Fiber's API closely, so most handlers move over by changing imports and a few signatures.
 This guide lists what differs, and why. It assumes Fiber v3.
 
 ## The engine
 
-Fiber runs on fasthttp; qinetic runs on [qilat](https://github.com/erizeta/qilat). The visible effects:
+Fiber runs on fasthttp; Qinetic runs on [qilat](https://github.com/erizeta/qilat). The visible effects:
 
 - One `App` serves HTTP/1.1, HTTP/2, and HTTP/3. `app.ListenTLS` opens TCP and UDP on the same port and
   advertises HTTP/3 with `Alt-Svc`.
@@ -15,7 +15,7 @@ Fiber runs on fasthttp; qinetic runs on [qilat](https://github.com/erizeta/qilat
 
 ## Handlers and the Ctx
 
-| Fiber v3 | qinetic | Notes |
+| Fiber v3 | Qinetic | Notes |
 |---|---|---|
 | `fiber.Ctx` (interface) | `*qinetic.Ctx` (struct) | Handlers are `func(c *qinetic.Ctx) error`. |
 | `c.Params("id")` and friends return unsafe strings unless `Immutable` | Always copies | No `Immutable` setting is needed. `PeekParam`, `PeekQuery`, and `PeekHeader` return `[]byte` without copying, valid until the handler returns. |
@@ -49,13 +49,13 @@ against Fiber in the repository's tests. The pattern syntax is narrower:
 ## Errors
 
 A handler error goes to `Config.ErrorHandler`, as in Fiber. The default differs for errors that are not a
-`*qinetic.Error`: Fiber sends `err.Error()` to the client, qinetic sends a generic 500 and logs the error to
+`*qinetic.Error`: Fiber sends `err.Error()` to the client, Qinetic sends a generic 500 and logs the error to
 `Config.Logger`, so internal details never leak. Return `qinetic.NewError(code, message)` for messages the
 client should see.
 
 ## Serving and shutdown
 
-| Fiber v3 | qinetic |
+| Fiber v3 | Qinetic |
 |---|---|
 | `app.Listen(":3000", fiber.ListenConfig{...})` | `app.Listen(":3000")`; options go in `qinetic.Config` |
 | TLS through `ListenConfig.CertFile` | `app.ListenTLS(addr, cert, key)` or `app.ListenTLSWithCertificate(addr, cert)`, HTTP/3 included |
@@ -70,7 +70,7 @@ finished and the hooks have run, so returning from `main` right after it is safe
 Import paths move from `github.com/gofiber/fiber/v3/middleware/...` to
 `github.com/erizeta/qinetic/middleware/...`. Each package keeps `New(config ...Config)` and a `Next` option.
 
-| Fiber v3 | qinetic | Notes |
+| Fiber v3 | Qinetic | Notes |
 |---|---|---|
 | `recover` | `recovery` | Renamed so importing it does not shadow the builtin. |
 | `logger` | `logger` | Writes `slog` records; the path is logged without its query. |

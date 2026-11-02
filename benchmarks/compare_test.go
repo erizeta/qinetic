@@ -51,7 +51,7 @@ func jsonBody() []byte {
 	return b
 }
 
-// serveQilatCompare is plain qilat with its ServeMux and qilat.Chain, the floor qinetic is measured against.
+// serveQilatCompare is plain qilat with its ServeMux and qilat.Chain, the floor Qinetic is measured against.
 func serveQilatCompare(tb testing.TB, ln net.Listener) func() {
 	text := func(w qilat.ResponseWriter, s string) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -195,7 +195,7 @@ func TestCompare(t *testing.T) {
 	}
 }
 
-// BenchmarkCompare is qilat, qinetic, and Fiber v3 on the same scenarios, transports, and client:
+// BenchmarkCompare is qilat, Qinetic, and Fiber v3 on the same scenarios, transports, and client:
 // keep-alive HTTP/1.1, 8 connections per GOMAXPROCS.
 func BenchmarkCompare(b *testing.B) {
 	for _, tr := range transports {

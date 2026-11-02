@@ -73,7 +73,7 @@ func TestCompress(t *testing.T) {
 		t.Run(tt.target+strings.Join(tt.hdr, "="), func(t *testing.T) {
 			code, enc, body, vary := fetch(t, app, tt.target, tt.hdr...)
 			if tt.code == 206 {
-				// qinetic buffers responses and does not serve ranges itself; only check it is not compressed.
+				// Qinetic buffers responses and does not serve ranges itself; only check it is not compressed.
 				if enc != "" {
 					t.Fatalf("Range request compressed")
 				}
