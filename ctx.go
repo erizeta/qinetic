@@ -165,6 +165,29 @@ func (c *Ctx) ResponseSize() int64 {
 	return c.sent + int64(len(c.body))
 }
 
+// ResponseHeader returns the response header, for middleware that inspect or copy it. It is valid only
+// until the handler chain returns.
+func (c *Ctx) ResponseHeader() *qilat.Header {
+	c.live()
+	return c.w.Header()
+}
+
+// ResponseBody returns the buffered response body, or nil once the response is committed, when it has
+// been sent. It is valid only until the body changes or the handler chain returns.
+func (c *Ctx) ResponseBody() []byte {
+	c.live()
+	if c.committed {
+		return nil
+	}
+	return c.body
+}
+
+// Committed reports whether the response has been sent, at least in part, so it can no longer be replaced.
+func (c *Ctx) Committed() bool {
+	c.live()
+	return c.committed
+}
+
 // HandleError runs the App's error handling for err now, as it would after the chain: the body is
 // discarded and Config.ErrorHandler writes the response. Middleware such as a logger use it to see the
 // final status; the handler should then return nil.

@@ -15,8 +15,8 @@ middleware.
 ## Status
 
 qinetic is in early development and has no release yet; the API will change until v1.0.0. Routing, the
-request/response API, serving over HTTP/1.1, HTTP/2, and HTTP/3, and the middleware, rate limiting and CSRF
-included, work today; caching comes next. See the [changelog](CHANGELOG.md).
+request/response API, serving over HTTP/1.1, HTTP/2, and HTTP/3, and the middleware, rate limiting, CSRF, and
+caching included, work today. See the [changelog](CHANGELOG.md).
 
 ## Installation
 
@@ -142,6 +142,7 @@ Middleware lives under `middleware/`, and each package has `New(config ...Config
 | `static` | Files from a directory or `fs.FS`, with Range, 304, and index files; listings only with `Browse`; `..` refused |
 | `limiter` | Fixed or sliding window per key (IP by default), `X-RateLimit-*` headers, 429 with `Retry-After` |
 | `csrf` | Refuses cross-origin unsafe requests (`Sec-Fetch-Site`, `Origin`) and requires a stored token for every one |
+| `cache` | Stores GET responses and serves them to GET and HEAD, one copy per value of each `Vary` header |
 
 ```go
 package main
@@ -238,6 +239,25 @@ logout. Rejected requests do not use up the rate limit.
 store starts no goroutine: expired entries go on access, and it holds at most 100,000 entries. To share limits
 and tokens between instances, pass a `Storage` backed by Redis or similar; if it also implements
 `qinetic.Incrementer`, limits are counted atomically across them.
+
+### Caching
+
+`cache.New()` stores 200 responses to GET for a minute, keyed by host, path, and query, and marks responses
+`X-Cache: hit` or `miss`. It stores nothing for requests with `Authorization` or `Cache-Control: no-store`,
+nor for responses with `Set-Cookie`, `Cache-Control` private, no-store, or no-cache, or a streamed body.
+
+Register it after `compress`, as in `app.Use(compress.New(), cache.New())`. The cache then runs inside
+compress: it stores the body before compression, and compress compresses each hit for the client's
+`Accept-Encoding`. Registered before compress, it would see responses already sent and store nothing.
+Headers set by middleware registered before the cache, such as `cors` and `requestid`, are not stored,
+since they run again on every hit.
+
+A response with `Vary` is stored once per combination of the request headers it names, so a response for
+one `Origin` (which `cors` always varies on) or `Accept-Language` is never served to another. A header that
+is absent differs from one that is empty. `Vary: *` is never stored, and at most `MaxVariants` copies (16)
+are kept per key, so random header values cannot fill the storage. The default storage is in memory and
+holds at most 64 MiB; with an external `Storage`, entries are versioned, and an unreadable one is a miss.
+If the storage fails, requests are served uncached and the error is logged.
 
 ### Strings and lifetimes
 

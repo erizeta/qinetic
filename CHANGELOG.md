@@ -48,6 +48,9 @@ changes, each listed with what to change.
 - `csrf` middleware: origin check from `Sec-Fetch-Site`, `Origin` (scheme and host), and, over HTTPS without
   `Origin`, `Referer`, plus a stored token required for every unsafe request; `TokenFromContext` and
   `DeleteToken`.
+- `cache` middleware: stores GET responses with one copy per `Vary` value, `MaxVariants` and `MaxBytes`
+  bounds, versioned entries, and storage outages served uncached.
+- `c.ResponseHeader`, `c.ResponseBody`, and `c.Committed` for middleware that read the response.
 - Adapters `FromQilatMiddleware`, `FromStdMiddleware`, `FromQilat`, and `FromStd`, and `c.StatusCode`,
   `c.ResponseSize`, and `c.HandleError` for middleware that report on the response. Once an adapted qilat
   handler or middleware has finished the response, further body writes return `ErrResponseSent` instead of

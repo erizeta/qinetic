@@ -19,12 +19,18 @@ const sweepPerSet = 8
 // ErrClosed is returned after Close.
 var ErrClosed = errors.New("qinetic/memory: storage closed")
 
+// ErrTooLarge is returned by Set for an entry larger than Config.MaxBytes on its own.
+var ErrTooLarge = errors.New("qinetic/memory: entry larger than MaxBytes")
+
 // Config configures a Storage.
 type Config struct {
 	// MaxEntries bounds the number of entries, so a client cannot exhaust memory with new keys. When it is
 	// reached, the entry closest to expiry is evicted; entries without expiry go last. Zero means
 	// DefaultMaxEntries.
 	MaxEntries int
+	// MaxBytes bounds the total size of keys and values, evicting like MaxEntries. Zero means no bound
+	// beyond MaxEntries; a cache of response bodies should set one.
+	MaxBytes int64
 	// Clock returns the current time. If nil, time.Now is used.
 	Clock func() time.Time
 }
@@ -37,12 +43,14 @@ type entry struct {
 
 // Storage is a map guarded by a mutex, with a min-heap on expiry for sweeping and eviction.
 type Storage struct {
-	mu      sync.Mutex
-	entries map[string]*entry
-	byExp   expHeap
-	max     int
-	now     func() time.Time
-	closed  bool
+	mu       sync.Mutex
+	entries  map[string]*entry
+	byExp    expHeap
+	max      int
+	maxBytes int64
+	size     int64 // bytes of keys and values held
+	now      func() time.Time
+	closed   bool
 }
 
 // New returns an empty Storage. It starts no goroutines.
@@ -57,7 +65,7 @@ func New(cfg ...Config) *Storage {
 	if c.Clock == nil {
 		c.Clock = time.Now
 	}
-	return &Storage{entries: make(map[string]*entry), max: c.MaxEntries, now: c.Clock}
+	return &Storage{entries: make(map[string]*entry), max: c.MaxEntries, maxBytes: c.MaxBytes, now: c.Clock}
 }
 
 func (e *entry) expired(now time.Time) bool { return !e.exp.IsZero() && !now.Before(e.exp) }
@@ -91,6 +99,9 @@ func (s *Storage) Set(_ context.Context, key string, val []byte, ttl time.Durati
 	var exp time.Time
 	if ttl > 0 {
 		exp = now.Add(ttl)
+	}
+	if s.maxBytes > 0 && int64(len(key)+len(val)) > s.maxBytes {
+		return ErrTooLarge
 	}
 	s.put(key, append([]byte{}, val...), exp, now)
 	return nil
@@ -138,7 +149,7 @@ func (s *Storage) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
-	s.entries, s.byExp = nil, nil
+	s.entries, s.byExp, s.size = nil, nil, 0
 	return nil
 }
 
@@ -151,8 +162,10 @@ func (s *Storage) Len() int {
 
 func (s *Storage) put(key string, val []byte, exp, now time.Time) {
 	if e, ok := s.entries[key]; ok {
+		s.size += int64(len(val) - len(e.val))
 		e.val, e.exp = val, exp
 		heap.Fix(&s.byExp, e.idx)
+		s.evictBytes(e)
 		return
 	}
 	// Expired entries sit at the top of the heap; drop a few on every new key.
@@ -169,11 +182,37 @@ func (s *Storage) put(key string, val []byte, exp, now time.Time) {
 	}
 	e := &entry{val: val, exp: exp}
 	s.entries[key] = e
+	s.size += int64(len(key) + len(val))
 	heap.Push(&s.byExp, heapItem{key: key, e: e})
+	s.evictBytes(e)
+}
+
+// evictBytes evicts entries closest to expiry, never keep itself, until the total fits MaxBytes.
+func (s *Storage) evictBytes(keep *entry) {
+	for s.maxBytes > 0 && s.size > s.maxBytes {
+		top := s.byExp[0]
+		if top.e == keep {
+			// keep is the next to go; evict the one after it instead.
+			if len(s.byExp) == 1 {
+				return
+			}
+			top = s.byExp[s.secondIdx()]
+		}
+		s.remove(top.key, top.e)
+	}
+}
+
+// secondIdx is the heap index of the entry after the top: one of its two children.
+func (s *Storage) secondIdx() int {
+	if len(s.byExp) > 2 && s.byExp.Less(2, 1) {
+		return 2
+	}
+	return 1
 }
 
 func (s *Storage) remove(key string, e *entry) {
 	delete(s.entries, key)
+	s.size -= int64(len(key) + len(e.val))
 	heap.Remove(&s.byExp, e.idx)
 }
 

@@ -204,3 +204,33 @@ func TestIncrConcurrentIsExact(t *testing.T) {
 		t.Fatalf("count %s, want 16000", got)
 	}
 }
+
+func TestMaxBytes(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
+	s := New(Config{MaxBytes: 100, Clock: clk.now})
+	val := make([]byte, 29) // 30 bytes with a one-letter key
+	_ = s.Set(ctx, "a", val, time.Minute)
+	_ = s.Set(ctx, "b", val, 2*time.Minute)
+	_ = s.Set(ctx, "c", val, 3*time.Minute)
+	_ = s.Set(ctx, "d", val, 4*time.Minute) // 120 bytes: "a", closest to expiry, goes
+	if got, _ := s.Get(ctx, "a"); got != nil || s.Len() != 3 || s.size != 90 {
+		t.Fatalf("after overflow: a=%v, %d entries, %d bytes", got, s.Len(), s.size)
+	}
+	// An entry written now is never evicted for itself, even when it expires first.
+	_ = s.Set(ctx, "e", val, time.Second)
+	if got, _ := s.Get(ctx, "e"); got == nil || s.size > 100 {
+		t.Fatalf("new entry evicted, or %d bytes", s.size)
+	}
+	// Growing an entry in place evicts others too.
+	_ = s.Set(ctx, "e", make([]byte, 69), time.Second)
+	if got, _ := s.Get(ctx, "e"); len(got) != 69 || s.size > 100 {
+		t.Fatalf("grown entry: %d bytes stored, %d total", len(got), s.size)
+	}
+	if err := s.Set(ctx, "huge", make([]byte, 100), 0); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("oversized Set: %v", err)
+	}
+	_ = s.Delete(ctx, "e")
+	if s.size != int64(30*(s.Len())) {
+		t.Fatalf("size %d with %d entries after Delete", s.size, s.Len())
+	}
+}
