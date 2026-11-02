@@ -103,6 +103,27 @@ func TestListen(t *testing.T) {
 	}
 }
 
+// waitServing waits until the app on ln answers an HTTP request. With a listener opened before the Listen
+// call, a TCP dial succeeds at once, before the app is serving, so only a response proves it is.
+func waitServing(t *testing.T, ln net.Listener) {
+	t.Helper()
+	tr := &http.Transport{}
+	defer tr.CloseIdleConnections()
+	client := &http.Client{Transport: tr, Timeout: time.Second}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		resp, err := client.Get("http://" + ln.Addr().String() + "/")
+		if err == nil {
+			_ = resp.Body.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("app on %s is not serving: %v", ln.Addr(), err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func waitDial(t *testing.T, network, addr string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -369,7 +390,7 @@ func TestListenTLSWithCertificateAfterStart(t *testing.T) {
 	app := protoApp()
 	ln := listenLocal(t)
 	run(t, app, func() error { return app.Listener(ln) })
-	waitDial(t, "tcp", ln.Addr().String())
+	waitServing(t, ln)
 	if err := app.ListenTLSWithCertificate("127.0.0.1:0", cert); !errors.Is(err, ErrCertificateAfterStart) {
 		t.Fatalf("got %v, want ErrCertificateAfterStart", err)
 	}
@@ -388,7 +409,7 @@ func TestListenWaitsForShutdown(t *testing.T) {
 	ln := listenLocal(t)
 	listened := make(chan error, 1)
 	go func() { listened <- app.Listener(ln) }()
-	waitDial(t, "tcp", ln.Addr().String())
+	waitServing(t, ln)
 	shut := make(chan error, 1)
 	go func() { shut <- app.ShutdownWithTimeout(5 * time.Second) }()
 	<-hookStarted
