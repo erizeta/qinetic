@@ -33,8 +33,10 @@ type Ctx struct {
 
 	status    int
 	body      []byte
-	committed bool // status and buffered body sent; writes go to w
-	noLength  bool // trailers are set, so flush must not declare a Content-Length
+	committed bool  // status and buffered body sent; writes go to w
+	sealed    bool  // a qilat handler or middleware finished the response; nothing more may be written
+	noLength  bool  // trailers are set, so flush must not declare a Content-Length
+	sent      int64 // body bytes written to the client so far
 	dead      bool
 
 	// scratch holds decoded parameter values; it only grows during a request, so returned slices stay valid.
@@ -94,7 +96,13 @@ func bodyAllowed(status int) bool {
 }
 
 func (c *Ctx) writeCommitted() error {
-	_, err := c.w.Write(c.body)
+	if c.sealed {
+		// The bytes would follow a body framed or encoded by someone else, such as a gzip stream.
+		c.body = c.body[:0]
+		return ErrResponseSent
+	}
+	n, err := c.w.Write(c.body)
+	c.sent += int64(n)
 	c.body = c.body[:0]
 	return err
 }
@@ -139,7 +147,31 @@ func (c *Ctx) flush() {
 	c.w.WriteHeader(status)
 	if len(c.body) > 0 {
 		// A failed write means the client is gone; qilat has already canceled the request context.
-		_, _ = c.w.Write(c.body)
+		n, _ := c.w.Write(c.body)
+		c.sent += int64(n)
+	}
+}
+
+// StatusCode returns the response status: the one set so far, or 200.
+func (c *Ctx) StatusCode() int {
+	c.live()
+	return c.statusCode()
+}
+
+// ResponseSize returns the size of the response body: what is buffered, plus what has already been sent
+// once the response is committed. Bytes compressed by middleware count before compression.
+func (c *Ctx) ResponseSize() int64 {
+	c.live()
+	return c.sent + int64(len(c.body))
+}
+
+// HandleError runs the App's error handling for err now, as it would after the chain: the body is
+// discarded and Config.ErrorHandler writes the response. Middleware such as a logger use it to see the
+// final status; the handler should then return nil.
+func (c *Ctx) HandleError(err error) {
+	c.live()
+	if err != nil {
+		c.app.handleError(c, err)
 	}
 }
 
@@ -147,7 +179,7 @@ func (c *Ctx) reset() {
 	c.app, c.w, c.r = nil, nil, nil
 	c.m.clear()
 	c.route, c.handler = nil, 0
-	c.status, c.committed, c.noLength = 0, false, false
+	c.status, c.committed, c.noLength, c.sent, c.sealed = 0, false, false, 0, false
 	c.body = trimPooled(c.body)
 	c.scratch = trimPooled(c.scratch)
 	c.reqBody = trimPooled(c.reqBody)

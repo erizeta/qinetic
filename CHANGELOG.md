@@ -39,5 +39,11 @@ changes, each listed with what to change.
   `Shutdown` they return only once in-flight requests and hooks are done. `Config` gains `TLSConfig`,
   `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `H2C`, `DisableHTTP3`, and `Server` for any other
   `qilat.Server` setting; `BodyLimit`, `Logger`, and `DebugPoison` also apply to the server.
+- Middleware packages `recovery`, `logger`, `requestid`, `cors`, `compress`, and `static`, each with a `Next`
+  option. Static files are mounted with `app.Use(prefix, static.New(root))` or a wildcard route.
+- Adapters `FromQilatMiddleware`, `FromStdMiddleware`, `FromQilat`, and `FromStd`, and `c.StatusCode`,
+  `c.ResponseSize`, and `c.HandleError` for middleware that report on the response. Once an adapted qilat
+  handler or middleware has finished the response, further body writes return `ErrResponseSent` instead of
+  appending raw bytes to a body it framed or compressed.
 - `c.Bind()` with `JSON`, `XML`, `Form`, `Query`, and `Body`. Form and query keys match `form`/`query` tags,
   or field names, case-insensitively as in Fiber; malformed input is a 400 that never includes decoder output.

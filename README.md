@@ -15,8 +15,8 @@ middleware.
 ## Status
 
 qinetic is in early development and has no release yet; the API will change until v1.0.0. Routing, the
-request/response API, and serving over HTTP/1.1, HTTP/2, and HTTP/3 work today; the bundled middleware comes
-next. See the [changelog](CHANGELOG.md).
+request/response API, serving over HTTP/1.1, HTTP/2, and HTTP/3, and the basic middleware work today; rate
+limiting, CSRF, and caching come next. See the [changelog](CHANGELOG.md).
 
 ## Installation
 
@@ -126,6 +126,61 @@ func main() {
 
 Run it with `go run ./examples/rest`, or test it without a network through `app.Test`, as
 [`examples/rest/main_test.go`](examples/rest/main_test.go) does.
+
+### Middleware
+
+Middleware lives under `middleware/`, and each package has `New(config ...Config) qinetic.Handler` with a
+`Next` function to skip it:
+
+| Package | Does |
+|---|---|
+| `recovery` | Turns panics into a 500 through the ErrorHandler; `qilat.ErrAbortHandler` still aborts |
+| `logger` | One `slog` record per request: method, raw path (no query), status, latency, bytes, protocol, IP, request ID |
+| `requestid` | Keeps a valid incoming `X-Request-ID` (at most 128 safe characters) or generates one; `requestid.FromContext(c)` |
+| `cors` | Exact and `https://*.example.com` origins, preflight, credentials (refuses `*` with credentials at startup), always `Vary: Origin` |
+| `compress` | gzip or other codings through `qilat.CompressWith`, skipping small bodies, images, and Range requests |
+| `static` | Files from a directory or `fs.FS`, with Range, 304, and index files; listings only with `Browse`; `..` refused |
+
+```go
+package main
+
+import (
+	"log"
+
+	"github.com/erizeta/qinetic"
+	"github.com/erizeta/qinetic/middleware/compress"
+	"github.com/erizeta/qinetic/middleware/cors"
+	"github.com/erizeta/qinetic/middleware/logger"
+	"github.com/erizeta/qinetic/middleware/recovery"
+	"github.com/erizeta/qinetic/middleware/requestid"
+	"github.com/erizeta/qinetic/middleware/static"
+)
+
+func main() {
+	app := qinetic.New()
+	// requestid first so the logger sees the ID; logger before recovery so panics are logged as 500s.
+	app.Use(requestid.New(), logger.New(), recovery.New(), compress.New())
+
+	api := app.Group("/api", cors.New(cors.Config{
+		AllowOrigins:     []string{"https://app.example.com", "https://*.preview.example.com"},
+		AllowCredentials: true,
+	}))
+	api.Get("/hello", func(c *qinetic.Ctx) error {
+		return c.JSON(map[string]string{"request_id": requestid.FromContext(c)})
+	})
+
+	app.Use("/assets", static.New("./public", static.Config{MaxAge: 3600}))
+	log.Fatal(app.Listen(":3000"))
+}
+```
+
+Order matters: put `requestid` before `logger`, and `logger` before `recovery`. `compress` is qilat middleware run through
+`qinetic.FromQilatMiddleware`: the handlers after it, the ErrorHandler, and the buffered response all run
+inside it, so its output covers error pages too, and middleware registered before it see the response as
+already sent: status and size are still available from `c.StatusCode()` and `c.ResponseSize()`, and a late
+write returns `qinetic.ErrResponseSent` instead of corrupting the compressed body. Register middleware that
+must change the body, such as a cache, after `compress`.
+`FromStdMiddleware`, `FromQilat`, and `FromStd` bring in net/http and qilat middleware and handlers the same way.
 
 ### Strings and lifetimes
 

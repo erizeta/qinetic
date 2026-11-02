@@ -251,6 +251,9 @@ func (c *Ctx) SendStream(r io.Reader, size ...int) error {
 	if rc, ok := r.(io.Closer); ok {
 		defer func() { _ = rc.Close() }()
 	}
+	if c.sealed {
+		return ErrResponseSent
+	}
 	if c.committed {
 		return errors.New("qinetic: SendStream after the response was committed")
 	}
@@ -269,13 +272,24 @@ func (c *Ctx) SendStream(r io.Reader, size ...int) error {
 // The response can no longer be replaced by an ErrorHandler.
 func (c *Ctx) Writer() io.Writer {
 	c.live()
+	if c.sealed {
+		return errWriter{ErrResponseSent}
+	}
 	_ = c.commit()
 	return c.w
 }
 
+// errWriter fails every write, for a Writer asked for after the response was sealed.
+type errWriter struct{ err error }
+
+func (e errWriter) Write([]byte) (int, error) { return 0, e.err }
+
 // Flush commits the response and sends what has been written so far to the client.
 func (c *Ctx) Flush() error {
 	c.live()
+	if c.sealed {
+		return ErrResponseSent
+	}
 	if err := c.commit(); err != nil {
 		return err
 	}
