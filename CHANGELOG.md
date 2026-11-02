@@ -33,5 +33,11 @@ changes, each listed with what to change.
   refuses control characters), `Cookie`, `ClearCookie`, `Attachment`, `Download`, `SendFile` (refuses `..`),
   `SendStream`, `Writer`, `Flush`, and `Trailer`. `SendString` defaults Content-Type to
   `text/plain; charset=utf-8`.
+- Serving: `Listen`, `ListenTLS` (HTTP/1.1 and HTTP/2 over TCP, HTTP/3 over UDP on the same port),
+  `ListenTLSWithCertificate`, `Listener`, `ListenerTLS`, and `ListenQUIC`, with `Shutdown`,
+  `ShutdownWithTimeout`, and `OnShutdown` hooks. Concurrent Listen calls share one `qilat.Server`, and after
+  `Shutdown` they return only once in-flight requests and hooks are done. `Config` gains `TLSConfig`,
+  `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `H2C`, `DisableHTTP3`, and `Server` for any other
+  `qilat.Server` setting; `BodyLimit`, `Logger`, and `DebugPoison` also apply to the server.
 - `c.Bind()` with `JSON`, `XML`, `Form`, `Query`, and `Body`. Form and query keys match `form`/`query` tags,
   or field names, case-insensitively as in Fiber; malformed input is a 400 that never includes decoder output.

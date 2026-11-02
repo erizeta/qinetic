@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/erizeta/qilat"
 	"github.com/erizeta/qinetic"
 )
 
@@ -68,6 +67,5 @@ func newApp() *qinetic.App {
 }
 
 func main() {
-	srv := &qilat.Server{Handler: newApp()}
-	log.Fatal(srv.ListenAndServe(":3000"))
+	log.Fatal(newApp().Listen(":3000"))
 }

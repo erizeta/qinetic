@@ -1,6 +1,7 @@
 package qinetic
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,14 @@ type App struct {
 	proxies    []netip.Prefix
 	jsonEncode func(v any) ([]byte, error)
 	jsonDecode func(data []byte, v any) error
+
+	srvMu      sync.Mutex
+	srv        *qilat.Server
+	active     int // Listen calls using srv
+	closed     bool
+	onShutdown []func(ctx context.Context) error
+	hooksOnce  sync.Once
+	stopped    chan struct{} // closed when Shutdown has finished
 }
 
 // New returns an App configured by cfg, if given.
@@ -63,6 +72,7 @@ func New(cfg ...Config) *App {
 	}
 	app.router = newRouter(app.config.CaseSensitive, app.config.StrictRouting)
 	app.pool.New = func() any { return new(Ctx) }
+	app.stopped = make(chan struct{})
 	app.group = Group{app: app}
 	return app
 }

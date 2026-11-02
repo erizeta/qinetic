@@ -14,10 +14,9 @@ middleware.
 
 ## Status
 
-qinetic is in early development and has no release yet; the API will change until v1.0.0. Routing, groups,
-the `c.Next()` chain, error handling, and in-memory testing with `app.Test` work today. An `App` is a
-`qilat.Handler`, so it can already be served by a `qilat.Server`; `app.Listen` and the request/response helpers
-come next. See the [changelog](CHANGELOG.md).
+qinetic is in early development and has no release yet; the API will change until v1.0.0. Routing, the
+request/response API, and serving over HTTP/1.1, HTTP/2, and HTTP/3 work today; the bundled middleware comes
+next. See the [changelog](CHANGELOG.md).
 
 ## Installation
 
@@ -27,10 +26,29 @@ Requires Go 1.26 or newer.
 go get github.com/erizeta/qinetic
 ```
 
+## Quick start
+
+```go
+package main
+
+import (
+	"log"
+
+	"github.com/erizeta/qinetic"
+)
+
+func main() {
+	app := qinetic.New()
+	app.Get("/", func(c *qinetic.Ctx) error {
+		return c.SendString("Hello, " + c.Protocol())
+	})
+	log.Fatal(app.Listen(":3000"))
+}
+```
+
 ## Example
 
-A small REST API. Until `app.Listen` lands, an `App` is served by a `qilat.Server`, since it is a
-`qilat.Handler`.
+A small REST API.
 
 ```go
 package main
@@ -40,7 +58,6 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/erizeta/qilat"
 	"github.com/erizeta/qinetic"
 )
 
@@ -103,8 +120,7 @@ func newApp() *qinetic.App {
 }
 
 func main() {
-	srv := &qilat.Server{Handler: newApp()}
-	log.Fatal(srv.ListenAndServe(":3000"))
+	log.Fatal(newApp().Listen(":3000"))
 }
 ```
 
@@ -128,6 +144,84 @@ and `X-Forwarded-Host` believed by `c.Secure()` and `c.Host()`, and their `Confi
 `X-Forwarded-For`) by `c.IP()`. `c.IP()` returns the rightmost address that is not a trusted proxy and
 `c.Host()` the last forwarded host, so a client cannot choose either by sending the headers itself. Fiber
 takes the first forwarded host instead.
+
+### HTTP/3 and graceful shutdown
+
+`ListenTLS` serves HTTP/1.1 and HTTP/2 over TCP and HTTP/3 over UDP on the same port, advertising HTTP/3 to TCP
+clients with `Alt-Svc`. `ListenTLSWithCertificate` takes a certificate in memory, such as a development one:
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"log"
+	"os"
+	"os/signal"
+	"time"
+
+	"github.com/erizeta/qilat"
+	"github.com/erizeta/qinetic"
+)
+
+func main() {
+	cert, err := qilat.GenerateDevCert()
+	if err != nil {
+		log.Fatal(err)
+	}
+	app := qinetic.New()
+	app.Get("/", func(c *qinetic.Ctx) error {
+		return c.SendString("Hello over " + c.Protocol() + "\n")
+	})
+	app.OnShutdown(func(_ context.Context) error {
+		log.Println("server stopped")
+		return nil
+	})
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
+			log.Println(err)
+		}
+	}()
+	// HTTP/1.1 and HTTP/2 on TCP, HTTP/3 on UDP, all on port 8443. After Shutdown, Listen returns once
+	// in-flight requests and OnShutdown hooks are done.
+	if err := app.ListenTLSWithCertificate(":8443", cert); !errors.Is(err, qilat.ErrServerClosed) {
+		log.Fatal(err)
+	}
+}
+```
+
+Try it with `curl -k --http1.1 https://localhost:8443/`, `curl -k https://localhost:8443/` (HTTP/2), and, with
+a curl built with HTTP/3, `curl -k --http3-only https://localhost:8443/`.
+
+After `Shutdown`, `Listen` returns `qilat.ErrServerClosed` only once in-flight requests have finished and the
+`OnShutdown` hooks have run, so returning from `main` right after it cuts nothing short.
+
+Other ways to serve: `Listen` (HTTP/1.1, plus cleartext HTTP/2 with `Config.H2C`), `Listener(net.Listener)`,
+`ListenerTLS(net.Listener)` and `ListenQUIC(net.PacketConn)` with certificates from `Config.TLSConfig`, or
+`app.Handler()` with your own `qilat.Server`. Listen calls running at the same time share one server, so
+`ListenerTLS` and `ListenQUIC` together serve HTTP/1.1, HTTP/2, and HTTP/3 and stop with one `Shutdown`.
+
+### Server limits
+
+The Listen methods build a `qilat.Server` from `Config`. Zero values keep qilat's defaults, so slow clients are
+cut off by the header and stall timeouts even though a request or response as a whole has no time limit:
+
+| Setting | Default | Set with |
+|---|---|---|
+| Request header | 10 s (`qilat.DefaultReadHeaderTimeout`) | `Config.Server` |
+| Request body or response stalled | 60 s without progress (`qilat.DefaultStallTimeout`) | `Config.Server` |
+| Keep-alive idle | 120 s (`qilat.DefaultIdleTimeout`) | `Config.IdleTimeout` |
+| Whole request / whole response | no limit | `Config.ReadTimeout` / `Config.WriteTimeout` |
+| Request body size | 4 MiB | `Config.BodyLimit` |
+| Header size | 64 KiB (`qilat.DefaultMaxHeaderBytes`) | `Config.Server` |
+
+`Config.Server` receives the `qilat.Server` before it starts, for anything else: TLS settings, connection
+limits, HTTP/2 and HTTP/3 tuning.
 
 ### Errors
 
