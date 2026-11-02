@@ -32,7 +32,12 @@ type testResponse struct {
 
 func get(t *testing.T, app *App, method, target string) (testResponse, string) {
 	t.Helper()
-	resp, err := app.Test(httptest.NewRequest(method, target, nil))
+	return do(t, app, httptest.NewRequest(method, target, nil))
+}
+
+func do(t *testing.T, app *App, req *http.Request) (testResponse, string) {
+	t.Helper()
+	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,11 +334,17 @@ func TestRegisterRacesFirstServe(t *testing.T) {
 // serve runs app on a loopback qilat.Server and returns its base URL.
 func serve(t *testing.T, app *App) string {
 	t.Helper()
+	return serveWith(t, &qilat.Server{Handler: app})
+}
+
+// serveWith runs srv on a loopback listener until the test ends and returns its base URL.
+func serveWith(t *testing.T, srv *qilat.Server) string {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &qilat.Server{Handler: app, Logger: slog.New(slog.DiscardHandler)}
+	srv.Logger = slog.New(slog.DiscardHandler)
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ln) }()
 	t.Cleanup(func() {
@@ -391,6 +402,7 @@ func TestHelloAllocs(t *testing.T) {
 	app := New()
 	app.Get("/hello", func(c *Ctx) error { return c.SendString("Hello, World!") })
 	plain := qilat.HandlerFunc(func(w qilat.ResponseWriter, r *qilat.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Length", "13")
 		_, _ = w.WriteString("Hello, World!")
 	})
@@ -404,5 +416,33 @@ func TestHelloAllocs(t *testing.T) {
 	measure(app) // freeze the router and warm the pools
 	if got, base := measure(app), measure(plain); got > base {
 		t.Fatalf("qinetic hello: %v allocs/op, plain qilat: %v", got, base)
+	}
+}
+
+func TestEveryMethodHelper(t *testing.T) {
+	type register func(path string, h Handler, hs ...Handler) Router
+	app := New()
+	g := app.Group("/g")
+	helpers := map[string][2]register{
+		"GET": {app.Get, g.Get}, "HEAD": {app.Head, g.Head}, "POST": {app.Post, g.Post}, "PUT": {app.Put, g.Put},
+		"PATCH": {app.Patch, g.Patch}, "DELETE": {app.Delete, g.Delete}, "OPTIONS": {app.Options, g.Options},
+		"CONNECT": {app.Connect, g.Connect}, "TRACE": {app.Trace, g.Trace},
+	}
+	for method, rs := range helpers {
+		for _, r := range rs {
+			r("/"+strings.ToLower(method), func(c *Ctx) error { return c.SendString(c.Method()) })
+		}
+	}
+	for method := range helpers {
+		for _, prefix := range []string{"", "/g"} {
+			req := httptest.NewRequest(method, prefix+"/"+strings.ToLower(method), nil)
+			if method == "CONNECT" {
+				req.URL.Path = prefix + "/connect"
+			}
+			resp, body := do(t, app, req)
+			if resp.StatusCode != 200 || method != "HEAD" && body != method {
+				t.Errorf("%s %s: got %d %q", method, req.URL.Path, resp.StatusCode, body)
+			}
+		}
 	}
 }

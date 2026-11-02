@@ -1,10 +1,14 @@
 package qinetic
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"strings"
 	"sync"
 
 	"github.com/erizeta/qilat"
@@ -18,6 +22,11 @@ type App struct {
 	pool   sync.Pool
 	// group is the root Router that App's routing methods delegate to.
 	group Group
+
+	bodyLimit  int64
+	proxies    []netip.Prefix
+	jsonEncode func(v any) ([]byte, error)
+	jsonDecode func(data []byte, v any) error
 }
 
 // New returns an App configured by cfg, if given.
@@ -32,10 +41,66 @@ func New(cfg ...Config) *App {
 	if app.config.Logger == nil {
 		app.config.Logger = slog.Default()
 	}
+	app.bodyLimit = app.config.BodyLimit
+	if app.bodyLimit == 0 {
+		app.bodyLimit = DefaultBodyLimit
+	} else if app.bodyLimit < 0 {
+		app.bodyLimit = -1
+	}
+	for _, p := range app.config.TrustedProxies {
+		prefix, err := parseProxy(p)
+		if err != nil {
+			panic(fmt.Sprintf("qinetic: invalid TrustedProxies entry %q: %v", p, err))
+		}
+		app.proxies = append(app.proxies, prefix)
+	}
+	app.jsonEncode, app.jsonDecode = app.config.JSONEncoder, app.config.JSONDecoder
+	if app.jsonEncode == nil {
+		app.jsonEncode = json.Marshal
+	}
+	if app.jsonDecode == nil {
+		app.jsonDecode = json.Unmarshal
+	}
 	app.router = newRouter(app.config.CaseSensitive, app.config.StrictRouting)
 	app.pool.New = func() any { return new(Ctx) }
 	app.group = Group{app: app}
 	return app
+}
+
+func parseProxy(s string) (netip.Prefix, error) {
+	if strings.Contains(s, "/") {
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			return netip.Prefix{}, err
+		}
+		// Client addresses are compared unmapped, so a ::ffff:a.b.c.d/n prefix must be too.
+		if p.Addr().Is4In6() {
+			if p.Bits() < 96 {
+				return netip.Prefix{}, errors.New("IPv4-mapped prefix shorter than /96")
+			}
+			p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+		}
+		return p.Masked(), nil
+	}
+	a, err := netip.ParseAddr(s)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	a = a.Unmap()
+	return netip.PrefixFrom(a, a.BitLen()), nil
+}
+
+// trusted reports whether ip is one of Config.TrustedProxies.
+func (app *App) trusted(ip netip.Addr) bool {
+	if !ip.IsValid() {
+		return false
+	}
+	for _, p := range app.proxies {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // Handler returns app as a qilat.Handler, for a custom qilat.Server or qilat middleware.

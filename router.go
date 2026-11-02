@@ -15,6 +15,17 @@ type route struct {
 	use      bool
 	pat      *pattern
 	handlers []Handler
+	info     Route
+}
+
+// Route describes a registered route, as returned by c.Route.
+type Route struct {
+	// Method is the request method, or "USE" for middleware.
+	Method string
+	// Path is the pattern as registered, including group prefixes.
+	Path string
+	// Params are the parameter names in order; wildcards are named "*1", "+1", and so on.
+	Params []string
 }
 
 // router keeps routes in registration order, which is the order Next visits them. The candidate lists
@@ -68,7 +79,11 @@ func (r *router) add(method, path string, use bool, handlers []Handler) int {
 	if r.frozen.Load() {
 		panic(fmt.Sprintf("qinetic: route %s %q registered after the app started serving", method, path))
 	}
-	r.routes = append(r.routes, &route{method: method, path: path, use: use, pat: pat, handlers: handlers})
+	info := Route{Method: method, Path: path, Params: slices.Clone(pat.names)}
+	if use {
+		info.Method = "USE"
+	}
+	r.routes = append(r.routes, &route{method: method, path: path, use: use, pat: pat, handlers: handlers, info: info})
 	return len(r.routes) - 1
 }
 

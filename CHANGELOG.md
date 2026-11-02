@@ -19,4 +19,19 @@ changes, each listed with what to change.
   and sent with a `Content-Length`, so an `ErrorHandler` can replace them.
 - `Error`, `NewError`, common `Err*` values, and `DefaultErrorHandler`, which sends only `*Error` messages to
   clients and logs other errors to `Config.Logger`.
-- `Config` with `ErrorHandler`, `Logger`, `CaseSensitive`, `StrictRouting`, and `DebugPoison`.
+- `Config` with `ErrorHandler`, `Logger`, `CaseSensitive`, `StrictRouting`, `DebugPoison`, `BodyLimit`,
+  `ProxyHeader`, `TrustedProxies`, `JSONEncoder`, and `JSONDecoder`.
+- Request API: `Method`, `Path`, `OriginalURL`, `Host`, `Hostname`, `IP`, `IPs`, `Secure`, `Params`, `ParamsInt`,
+  `Query`, `QueryInt`, `QueryBool`, `Queries`, `Get`, `Cookies`, `Body`, `BodyReader`, `FormValue`,
+  `MultipartForm`, `FormFile`, `Locals`, `Route`, and `Request`. String accessors return copies; `PeekParam`,
+  `PeekQuery`, and `PeekHeader` return `[]byte` without copying or allocating. `Body` returns an error, with
+  `ErrRequestEntityTooLarge` past `BodyLimit` (4 MiB by default).
+- `IP`, `Secure`, `Host`, and `Hostname` believe `ProxyHeader`, `X-Forwarded-Proto`, and `X-Forwarded-Host`
+  only from `TrustedProxies`. `IP` takes the rightmost untrusted address and `Host` the last forwarded host, the
+  one the nearest proxy set, so clients cannot spoof them.
+- Response API: `Set`, `GetRespHeader`, `Append`, `Vary`, `Type`, `SendStatus`, `XML`, `Redirect` (303 by default;
+  refuses control characters), `Cookie`, `ClearCookie`, `Attachment`, `Download`, `SendFile` (refuses `..`),
+  `SendStream`, `Writer`, `Flush`, and `Trailer`. `SendString` defaults Content-Type to
+  `text/plain; charset=utf-8`.
+- `c.Bind()` with `JSON`, `XML`, `Form`, `Query`, and `Body`. Form and query keys match `form`/`query` tags,
+  or field names, case-insensitively as in Fiber; malformed input is a 400 that never includes decoder output.

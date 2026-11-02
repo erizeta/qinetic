@@ -29,6 +29,9 @@ jobs:
       - name: Benchmarks compile and pass sanity checks
         working-directory: benchmarks
         run: go test -race -run . -bench '^$' ./...
+      - name: Examples and README snippets
+        working-directory: examples
+        run: go vet ./... && go test -race ./...
 
   lint:
     runs-on: ubuntu-latest
@@ -50,5 +53,10 @@ jobs:
         with:
           version: v2.15.0
           working-directory: benchmarks
+      - name: golangci-lint (examples)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          working-directory: examples
       - name: govulncheck
         run: make vuln

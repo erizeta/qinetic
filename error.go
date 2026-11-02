@@ -10,9 +10,19 @@ import (
 type Error struct {
 	Code    int
 	Message string
+	// err is the cause, kept for logs and errors.Is but never sent to the client.
+	err error
 }
 
 func (e *Error) Error() string { return e.Message }
+
+// Unwrap returns the error that caused e, if any.
+func (e *Error) Unwrap() error { return e.err }
+
+// clientError returns an *Error for code with a message safe to send and cause kept for logging.
+func clientError(code int, message string, cause error) *Error {
+	return &Error{Code: code, Message: message, err: cause}
+}
 
 // NewError returns an Error with the given code and message, or the code's status text when message is empty.
 func NewError(code int, message ...string) *Error {

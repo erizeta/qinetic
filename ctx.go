@@ -1,8 +1,7 @@
 package qinetic
 
 import (
-	"context"
-	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"slices"
 	"strconv"
@@ -14,11 +13,12 @@ import (
 // Handler handles a request. A returned error goes to the App's ErrorHandler.
 type Handler = func(c *Ctx) error
 
-// maxPooledBody is the largest response buffer kept with a pooled Ctx; bigger ones are left to the GC.
+// maxPooledBody is the largest buffer kept with a pooled Ctx; bigger ones are left to the GC.
 const maxPooledBody = 64 << 10
 
-// Ctx carries one request through its handlers. Like the qilat request it wraps, a Ctx and everything
-// returned from it without copying are valid only until the handler chain returns; c.Context() may be kept.
+// Ctx carries one request through its handlers. Like the qilat request it wraps, a Ctx and every []byte
+// returned from it are valid only until the handler chain returns; strings are copies and c.Context()
+// may be kept.
 //
 // The response body is buffered and written once the chain and any ErrorHandler are done, so an
 // ErrorHandler can still replace it. Headers go straight to the qilat ResponseWriter.
@@ -34,7 +34,19 @@ type Ctx struct {
 	status    int
 	body      []byte
 	committed bool // status and buffered body sent; writes go to w
+	noLength  bool // trailers are set, so flush must not declare a Content-Length
 	dead      bool
+
+	// scratch holds decoded parameter values; it only grows during a request, so returned slices stay valid.
+	scratch  []byte
+	reqBody  []byte
+	bodyRead bool
+	bodyErr  error
+	form     qilat.Args
+	formRead bool
+	mform    *multipart.Form
+	formErr  error
+	locals   map[any]any
 }
 
 func (c *Ctx) live() {
@@ -70,68 +82,6 @@ func (c *Ctx) noRoute() error {
 	return ErrMethodNotAllowed
 }
 
-// Context returns the request context. It is canceled when the client disconnects or the request
-// finishes, and unlike the Ctx it may be kept after the handler returns.
-func (c *Ctx) Context() context.Context {
-	c.live()
-	return c.r.Context()
-}
-
-// Protocol returns the request protocol: "HTTP/1.1", "HTTP/2", or "HTTP/3".
-func (c *Ctx) Protocol() string {
-	c.live()
-	return c.r.Proto()
-}
-
-// Status sets the response status code. It has no effect once the response is committed.
-func (c *Ctx) Status(code int) *Ctx {
-	c.live()
-	c.status = code
-	return c
-}
-
-// Send replaces the response body with body.
-func (c *Ctx) Send(body []byte) error {
-	c.live()
-	return c.setBody(body)
-}
-
-// SendString replaces the response body with s.
-func (c *Ctx) SendString(s string) error {
-	c.live()
-	c.body = append(c.body[:0], s...)
-	return c.bodyReplaced()
-}
-
-// JSON encodes v as the response body with Content-Type application/json.
-func (c *Ctx) JSON(v any) error {
-	c.live()
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	c.w.Header().Set("Content-Type", "application/json")
-	return c.setBody(b)
-}
-
-func (c *Ctx) setBody(b []byte) error {
-	c.body = append(c.body[:0], b...)
-	return c.bodyReplaced()
-}
-
-func (c *Ctx) bodyReplaced() error {
-	if c.committed {
-		return c.writeCommitted()
-	}
-	return nil
-}
-
-func (c *Ctx) writeCommitted() error {
-	_, err := c.w.Write(c.body)
-	c.body = c.body[:0]
-	return err
-}
-
 func (c *Ctx) statusCode() int {
 	if c.status == 0 {
 		return http.StatusOK
@@ -141,6 +91,12 @@ func (c *Ctx) statusCode() int {
 
 func bodyAllowed(status int) bool {
 	return status >= 200 && status != http.StatusNoContent && status != http.StatusNotModified
+}
+
+func (c *Ctx) writeCommitted() error {
+	_, err := c.w.Write(c.body)
+	c.body = c.body[:0]
+	return err
 }
 
 // commit sends the status and buffered body without a Content-Length, for responses that stream.
@@ -159,8 +115,8 @@ func (c *Ctx) commit() error {
 	return c.writeCommitted()
 }
 
-// flush writes the buffered response. Content-Length is always set so bodies over qilat's 4 KiB
-// buffer are not chunked; for HEAD, qilat keeps it and drops the body.
+// flush writes the buffered response. Content-Length is set so bodies over qilat's 4 KiB buffer are not
+// chunked, unless trailers follow; for HEAD, qilat keeps it and drops the body.
 func (c *Ctx) flush() {
 	if c.committed {
 		return
@@ -174,8 +130,12 @@ func (c *Ctx) flush() {
 		c.w.WriteHeader(status)
 		return
 	}
-	var n [20]byte
-	h.SetBytes("Content-Length", strconv.AppendInt(n[:0], int64(len(c.body)), 10))
+	if c.noLength {
+		h.Del("Content-Length")
+	} else {
+		var n [20]byte
+		h.SetBytes("Content-Length", strconv.AppendInt(n[:0], int64(len(c.body)), 10))
+	}
 	c.w.WriteHeader(status)
 	if len(c.body) > 0 {
 		// A failed write means the client is gone; qilat has already canceled the request context.
@@ -187,10 +147,24 @@ func (c *Ctx) reset() {
 	c.app, c.w, c.r = nil, nil, nil
 	c.m.clear()
 	c.route, c.handler = nil, 0
-	c.status, c.committed = 0, false
-	if cap(c.body) > maxPooledBody {
-		c.body = nil
-	} else {
-		c.body = c.body[:0]
+	c.status, c.committed, c.noLength = 0, false, false
+	c.body = trimPooled(c.body)
+	c.scratch = trimPooled(c.scratch)
+	c.reqBody = trimPooled(c.reqBody)
+	c.bodyRead, c.bodyErr = false, nil
+	c.form.Reset()
+	c.formRead, c.formErr = false, nil
+	if c.mform != nil {
+		// Parts are read from the in-memory body, so there are no temporary files; this is a safeguard.
+		_ = c.mform.RemoveAll()
+		c.mform = nil
 	}
+	c.locals = nil
+}
+
+func trimPooled(b []byte) []byte {
+	if cap(b) > maxPooledBody {
+		return nil
+	}
+	return b[:0]
 }

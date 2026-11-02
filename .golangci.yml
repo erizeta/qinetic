@@ -17,6 +17,11 @@ linters:
         linters:
           - revive
         text: unused-parameter
+      # README snippets are kept verbatim, without package comments.
+      - path: examples/
+        linters:
+          - revive
+        text: package-comments
 
 formatters:
   enable:
