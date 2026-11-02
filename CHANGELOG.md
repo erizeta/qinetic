@@ -45,8 +45,9 @@ changes, each listed with what to change.
   goroutine and holds at most 100,000 entries.
 - `limiter` middleware: fixed or sliding window, `X-RateLimit-*` headers, 429 with `Retry-After`,
   `SkipFailedRequests`/`SkipSuccessfulRequests`, atomic with an `Incrementer` storage.
-- `csrf` middleware: origin check from `Sec-Fetch-Site` and `Origin`, plus a stored token required for every
-  unsafe request; `TokenFromContext` and `DeleteToken`.
+- `csrf` middleware: origin check from `Sec-Fetch-Site`, `Origin` (scheme and host), and, over HTTPS without
+  `Origin`, `Referer`, plus a stored token required for every unsafe request; `TokenFromContext` and
+  `DeleteToken`.
 - Adapters `FromQilatMiddleware`, `FromStdMiddleware`, `FromQilat`, and `FromStd`, and `c.StatusCode`,
   `c.ResponseSize`, and `c.HandleError` for middleware that report on the response. Once an adapted qilat
   handler or middleware has finished the response, further body writes return `ErrResponseSent` instead of

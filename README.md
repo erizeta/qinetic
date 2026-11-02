@@ -227,9 +227,10 @@ func main() {
 }
 ```
 
-`csrf` checks every POST, PUT, PATCH, and DELETE twice: a browser-marked cross-site request, or one whose
-`Origin` is neither the host nor in `TrustedOrigins`, is refused, and the token sent in the `X-Csrf-Token`
-header or `_csrf` form field must match the `csrf_` cookie and still be stored. The cookie is HttpOnly by
+`csrf` checks every POST, PUT, PATCH, and DELETE twice. First the origin: a browser-marked cross-site
+request is refused, as is one whose `Origin` differs from the request's own scheme and host and is not in
+`TrustedOrigins`; over HTTPS, a request without `Origin` needs a matching `Referer`. Then the token sent in
+the `X-Csrf-Token` header or `_csrf` form field must match the `csrf_` cookie and still be stored. The cookie is HttpOnly by
 default, so pages get the token from `csrf.TokenFromContext(c)`; call `csrf.DeleteToken(c)` on login and
 logout. Rejected requests do not use up the rate limit.
 

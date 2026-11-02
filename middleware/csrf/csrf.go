@@ -24,6 +24,7 @@ import (
 // Errors returned for refused requests; each is a 403 *qinetic.Error.
 var (
 	ErrCrossOrigin  = qinetic.NewError(http.StatusForbidden, "cross-origin request refused")
+	ErrNoReferer    = qinetic.NewError(http.StatusForbidden, "missing Referer on a request without Origin")
 	ErrMissingToken = qinetic.NewError(http.StatusForbidden, "missing CSRF token")
 	ErrInvalidToken = qinetic.NewError(http.StatusForbidden, "invalid CSRF token")
 )
@@ -71,9 +72,9 @@ type middleware struct {
 }
 
 // New returns the middleware. Safe methods (GET, HEAD, OPTIONS, TRACE) get a token, issued or refreshed.
-// Other methods are refused with ErrCrossOrigin when they come from another origin, and with
-// ErrMissingToken or ErrInvalidToken unless the token from Extractor matches the cookie and is still
-// stored. Both checks apply to every unsafe request, over HTTP as well as HTTPS.
+// Other methods are refused with ErrCrossOrigin when they come from another origin (ErrNoReferer for an
+// HTTPS request with neither Origin nor Referer), and with ErrMissingToken or ErrInvalidToken unless the
+// token from Extractor matches the cookie and is still stored. Both checks apply to every unsafe request.
 func New(config ...Config) qinetic.Handler {
 	var cfg Config
 	if len(config) > 0 {
@@ -174,9 +175,10 @@ func (m *middleware) handle(c *qinetic.Ctx) error {
 	return c.Next()
 }
 
-// checkOrigin refuses a request a browser marked as coming from another site, as
-// net/http.CrossOriginProtection does: Sec-Fetch-Site when sent, else Origin compared with Host. Requests
-// with neither, from older browsers or non-browser clients, are left to the token check.
+// checkOrigin refuses a request from another origin. Sec-Fetch-Site, when sent, is the browser's own
+// verdict. Otherwise Origin must equal the request's scheme and host, so a page on http:// cannot post
+// to https:// on the same host. A request without either over HTTPS must carry a matching Referer, as in
+// Fiber; over plain HTTP, where proxies may strip it, such a request is left to the token check.
 func (m *middleware) checkOrigin(c *qinetic.Ctx) error {
 	origin := c.Get("Origin")
 	if site := c.Get("Sec-Fetch-Site"); site != "" {
@@ -185,16 +187,42 @@ func (m *middleware) checkOrigin(c *qinetic.Ctx) error {
 		}
 		return ErrCrossOrigin
 	}
-	if origin == "" {
+	self := requestOrigin(c)
+	if origin != "" {
+		// "null", sent for example by sandboxed frames, never matches.
+		if norm, err := normalizeOrigin(origin); err == nil && (norm == self || m.trusted[norm]) {
+			return nil
+		}
+		return ErrCrossOrigin
+	}
+	if !c.Secure() {
 		return nil
 	}
-	if m.trustedOrigin(origin) {
-		return nil
+	referer := c.Get("Referer")
+	if referer == "" {
+		return ErrNoReferer
 	}
-	if u, err := url.Parse(origin); err == nil && u.Host != "" && strings.EqualFold(u.Host, c.Host()) {
+	u, err := url.Parse(referer)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ErrCrossOrigin
+	}
+	if norm, err := normalizeOrigin(u.Scheme + "://" + u.Host); err == nil && (norm == self || m.trusted[norm]) {
 		return nil
 	}
 	return ErrCrossOrigin
+}
+
+// requestOrigin is the request's own origin, normalized like the ones it is compared with.
+func requestOrigin(c *qinetic.Ctx) string {
+	scheme := "http"
+	if c.Secure() {
+		scheme = "https"
+	}
+	norm, err := normalizeOrigin(scheme + "://" + c.Host())
+	if err != nil {
+		return ""
+	}
+	return norm
 }
 
 func (m *middleware) trustedOrigin(origin string) bool {
@@ -296,5 +324,13 @@ func normalizeOrigin(o string) (string, error) {
 	if u.Scheme == "" || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
 		return "", fmt.Errorf("want scheme://host[:port]")
 	}
-	return strings.ToLower(u.Scheme + "://" + u.Host), nil
+	scheme, host := strings.ToLower(u.Scheme), strings.ToLower(u.Host)
+	// Browsers leave the default port out of Origin, while a Host header may include it.
+	switch scheme {
+	case "https":
+		host = strings.TrimSuffix(host, ":443")
+	case "http":
+		host = strings.TrimSuffix(host, ":80")
+	}
+	return scheme + "://" + host, nil
 }

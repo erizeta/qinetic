@@ -65,6 +65,12 @@ type request struct {
 
 func send(t *testing.T, app *qinetic.App, r request) response {
 	t.Helper()
+	return sendFrom(t, app, r, "")
+}
+
+// sendFrom is send with the connection's remote address, such as a trusted proxy's.
+func sendFrom(t *testing.T, app *qinetic.App, r request, remote string) response {
+	t.Helper()
 	var body io.Reader
 	if r.form != "" {
 		body = strings.NewReader(r.form)
@@ -85,6 +91,9 @@ func send(t *testing.T, app *qinetic.App, r request) response {
 	}
 	for k, v := range r.hdr {
 		req.Header.Set(k, v)
+	}
+	if remote != "" {
+		req.RemoteAddr = remote
 	}
 	resp, err := app.Test(req)
 	if err != nil {
@@ -306,4 +315,54 @@ func TestStorageErrorsAndConfig(t *testing.T) {
 		}
 	}()
 	New(Config{TrustedOrigins: []string{"admin.example.com"}})
+}
+
+// TestOriginSchemeAndReferer covers the checks shared with Fiber: Origin must match the request's scheme
+// as well as its host, and an HTTPS request without Origin needs a matching Referer.
+func TestOriginSchemeAndReferer(t *testing.T) {
+	useClock(t)
+	app := newApp(Config{TrustedOrigins: []string{"https://admin.example.com"}})
+	token := send(t, app, request{method: "GET"}).body
+	tests := []struct {
+		name, target string
+		hdr          map[string]string
+		code         int
+		body         string
+	}{
+		{"http Origin to https", "https://example.com/", map[string]string{"Origin": "http://example.com"}, 403, "cross-origin request refused"},
+		{"https Origin to http", "http://example.com/", map[string]string{"Origin": "https://example.com"}, 403, "cross-origin request refused"},
+		{"https Origin to https", "https://example.com/", map[string]string{"Origin": "https://example.com"}, 200, "changed"},
+		{"default port in Host", "https://example.com:443/", map[string]string{"Origin": "https://example.com"}, 200, "changed"},
+		{"other port", "https://example.com:8443/", map[string]string{"Origin": "https://example.com"}, 403, "cross-origin request refused"},
+		{"https without Origin or Referer", "https://example.com/", nil, 403, "missing Referer on a request without Origin"},
+		{"https with own Referer", "https://example.com/", map[string]string{"Referer": "https://example.com/form?x=1"}, 200, "changed"},
+		{"https with foreign Referer", "https://example.com/", map[string]string{"Referer": "https://evil.example/"}, 403, "cross-origin request refused"},
+		{"https with http Referer", "https://example.com/", map[string]string{"Referer": "http://example.com/form"}, 403, "cross-origin request refused"},
+		{"https with trusted Referer", "https://example.com/", map[string]string{"Referer": "https://admin.example.com/panel"}, 200, "changed"},
+		{"https with relative Referer", "https://example.com/", map[string]string{"Referer": "/form"}, 403, "cross-origin request refused"},
+		{"http without either", "http://example.com/", nil, 200, "changed"},
+		// Behind a trusted TLS proxy the request is HTTPS too, so the same rules apply.
+		{"proxied https, http Origin", "http://example.com/", map[string]string{"X-Forwarded-Proto": "https", "Origin": "http://example.com"}, 403, "cross-origin request refused"},
+		{"proxied https, https Origin", "http://example.com/", map[string]string{"X-Forwarded-Proto": "https", "Origin": "https://example.com"}, 200, "changed"},
+		{"proxied https, no Referer", "http://example.com/", map[string]string{"X-Forwarded-Proto": "https"}, 403, "missing Referer on a request without Origin"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hdr := map[string]string{}
+			for k, v := range tt.hdr {
+				hdr[k] = v
+			}
+			req := request{method: "POST", target: tt.target, cookie: token, token: token, hdr: hdr}
+			if hdr["X-Forwarded-Proto"] != "" {
+				r := sendFrom(t, app, req, "10.0.0.1:1")
+				if r.code != tt.code || r.body != tt.body {
+					t.Fatalf("got %d %q, want %d %q", r.code, r.body, tt.code, tt.body)
+				}
+				return
+			}
+			if r := send(t, app, req); r.code != tt.code || r.body != tt.body {
+				t.Fatalf("got %d %q, want %d %q", r.code, r.body, tt.code, tt.body)
+			}
+		})
+	}
 }
