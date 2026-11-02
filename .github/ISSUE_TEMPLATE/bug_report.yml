@@ -1,5 +1,5 @@
 name: Bug report
-description: Report incorrect behavior in qinetic.
+description: Report incorrect behavior in Qinetic.
 labels: ["bug"]
 body:
   - type: markdown
@@ -9,7 +9,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: qinetic version or commit
+      label: Qinetic version or commit
     validations:
       required: true
   - type: input

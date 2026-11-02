@@ -1,6 +1,6 @@
-# Contributing to qinetic
+# Contributing to Qinetic
 
-Thanks for your interest in qinetic. This document explains how to propose changes.
+Thanks for your interest in Qinetic. This document explains how to propose changes.
 
 ## Before you start
 

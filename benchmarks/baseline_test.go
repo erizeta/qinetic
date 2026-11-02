@@ -26,7 +26,7 @@ type message struct {
 var wantJSON = `{"message":"Hello, World!"}` + "\n"
 
 // baselineHandler is plain qilat with the routing and encoding a framework handler would do,
-// so later qinetic numbers show only the framework's own cost.
+// so later Qinetic numbers show only the framework's own cost.
 func baselineHandler(w qilat.ResponseWriter, r *qilat.Request) {
 	switch string(r.Path()) {
 	case "/hello":

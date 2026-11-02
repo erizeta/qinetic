@@ -15,7 +15,7 @@ import (
 	"github.com/erizeta/qilat"
 )
 
-// App is a qinetic application. It is a qilat.Handler; routes must be registered before it serves
+// App is a Qinetic application. It is a qilat.Handler; routes must be registered before it serves
 // its first request, after which registering panics.
 type App struct {
 	config Config
