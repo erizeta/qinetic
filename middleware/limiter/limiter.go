@@ -3,6 +3,8 @@ package limiter
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"hash/fnv"
 	"math"
@@ -53,7 +55,16 @@ type Config struct {
 // now is the clock, replaced in tests.
 var now = time.Now
 
-const keyPrefix = "limiter:"
+// storageKey namespaces counters by algorithm and hashes the client key, so a key holding ':' cannot
+// collide with another client's counter or with a window index, even when limiters share a Storage.
+func storageKey(alg Algorithm, key string) string {
+	sum := sha256.Sum256([]byte(key))
+	prefix := "limiter:f:"
+	if alg == SlidingWindow {
+		prefix = "limiter:s:"
+	}
+	return prefix + hex.EncodeToString(sum[:])
+}
 
 // New returns the middleware. Responses carry X-RateLimit-Limit, X-RateLimit-Remaining, and
 // X-RateLimit-Reset (seconds until the current window ends); a request over the limit gets 429 with
@@ -105,7 +116,7 @@ func (l *limiter) handle(c *qinetic.Ctx) error {
 		return c.Next()
 	}
 	ctx := c.Context()
-	key := keyPrefix + l.cfg.KeyGenerator(c)
+	key := storageKey(l.cfg.Algorithm, l.cfg.KeyGenerator(c))
 	var w window
 	var err error
 	if l.cfg.Algorithm == SlidingWindow {

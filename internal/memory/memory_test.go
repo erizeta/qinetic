@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/erizeta/qinetic"
-	"go.uber.org/goleak"
+	"github.com/erizeta/qinetic/internal/leaktest"
 )
 
 var (
@@ -18,7 +18,7 @@ var (
 )
 
 // TestMain also proves the storage starts no goroutine of its own.
-func TestMain(m *testing.M) { goleak.VerifyTestMain(m) }
+func TestMain(m *testing.M) { leaktest.VerifyTestMain(m) }
 
 type fakeClock struct {
 	mu sync.Mutex

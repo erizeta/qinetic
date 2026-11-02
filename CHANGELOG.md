@@ -7,6 +7,12 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-02
+
+The first release: a Fiber-style framework on qilat, serving HTTP/1.1, HTTP/2, and HTTP/3 from one `App`.
+Minimum Go version: 1.26. [docs/migrating-from-fiber.md](docs/migrating-from-fiber.md) lists what differs
+from Fiber v3.
+
 ### Added
 
 - `New` and `App`, a `qilat.Handler` with `Handler()` and `Test(*http.Request)` for in-memory tests.
@@ -40,16 +46,19 @@ changes, each listed with what to change.
   `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `H2C`, `DisableHTTP3`, and `Server` for any other
   `qilat.Server` setting; `BodyLimit`, `Logger`, and `DebugPoison` also apply to the server.
 - Middleware packages `recovery`, `logger`, `requestid`, `cors`, `compress`, and `static`, each with a `Next`
-  option. Static files are mounted with `app.Use(prefix, static.New(root))` or a wildcard route.
+  option. Static files are mounted with `app.Use(prefix, static.New(root))` or a wildcard route, and opened
+  through `os.Root`, so a symlink cannot lead outside the root.
 - `Storage` and `Incrementer` interfaces for middleware state, with an in-memory default that starts no
   goroutine and holds at most 100,000 entries.
 - `limiter` middleware: fixed or sliding window, `X-RateLimit-*` headers, 429 with `Retry-After`,
-  `SkipFailedRequests`/`SkipSuccessfulRequests`, atomic with an `Incrementer` storage.
+  `SkipFailedRequests`/`SkipSuccessfulRequests`, atomic with an `Incrementer` storage. Counters are keyed by
+  algorithm and a hash of the client key, so limiters can share a storage.
 - `csrf` middleware: origin check from `Sec-Fetch-Site`, `Origin` (scheme and host), and, over HTTPS without
   `Origin`, `Referer`, plus a stored token required for every unsafe request; `TokenFromContext` and
-  `DeleteToken`.
+  `DeleteToken`. Over HTTPS the cookie is `__Host-csrf_`, which a subdomain cannot set.
 - `cache` middleware: stores GET responses with one copy per `Vary` value, `MaxVariants` and `MaxBytes`
-  bounds, versioned entries, and storage outages served uncached.
+  bounds, versioned entries, and storage outages served uncached. Requests with `Authorization` or `Cookie`
+  bypass it unless `CacheCookieRequests` is set, so a personal page is never served to another user.
 - `c.ResponseHeader`, `c.ResponseBody`, and `c.Committed` for middleware that read the response.
 - Adapters `FromQilatMiddleware`, `FromStdMiddleware`, `FromQilat`, and `FromStd`, and `c.StatusCode`,
   `c.ResponseSize`, and `c.HandleError` for middleware that report on the response. Once an adapted qilat
@@ -57,3 +66,6 @@ changes, each listed with what to change.
   appending raw bytes to a body it framed or compressed.
 - `c.Bind()` with `JSON`, `XML`, `Form`, `Query`, and `Body`. Form and query keys match `form`/`query` tags,
   or field names, case-insensitively as in Fiber; malformed input is a 400 that never includes decoder output.
+
+[Unreleased]: https://github.com/erizeta/qinetic/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/erizeta/qinetic/releases/tag/v0.1.0

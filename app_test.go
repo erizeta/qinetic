@@ -16,12 +16,10 @@ import (
 	"time"
 
 	"github.com/erizeta/qilat"
-	"go.uber.org/goleak"
+	"github.com/erizeta/qinetic/internal/leaktest"
 )
 
-func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
-}
+func TestMain(m *testing.M) { leaktest.VerifyTestMain(m) }
 
 // testResponse is the part of an *http.Response tests check, read and closed by get.
 type testResponse struct {
@@ -394,28 +392,39 @@ func TestLargeBodyAndHead(t *testing.T) {
 	}
 }
 
-// TestHelloAllocs checks a static hello route allocates nothing beyond plain qilat on the same path.
+// TestHelloAllocs checks that hello routes, static, with a parameter read through PeekParam, and with a
+// wildcard, allocate nothing beyond plain qilat on the same in-memory path.
 func TestHelloAllocs(t *testing.T) {
 	if raceEnabled {
 		t.Skip("sync.Pool drops items at random under the race detector")
 	}
 	app := New()
-	app.Get("/hello", func(c *Ctx) error { return c.SendString("Hello, World!") })
+	hello := func(c *Ctx) error { return c.SendString("Hello, World!") }
+	app.Get("/hello", hello)
+	app.Get("/users/:id", func(c *Ctx) error {
+		if len(c.PeekParam("id")) == 0 {
+			return ErrBadRequest
+		}
+		return hello(c)
+	})
+	app.Get("/static/*", hello)
 	plain := qilat.HandlerFunc(func(w qilat.ResponseWriter, r *qilat.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Length", "13")
 		_, _ = w.WriteString("Hello, World!")
 	})
-	measure := func(h qilat.Handler) float64 {
+	measure := func(h qilat.Handler, target string) float64 {
 		std := qilat.ToStd(h)
-		req := httptest.NewRequest("GET", "/hello", nil)
+		req := httptest.NewRequest("GET", target, nil)
+		std.ServeHTTP(httptest.NewRecorder(), req) // freeze the router and warm the pools
 		return testing.AllocsPerRun(200, func() {
 			std.ServeHTTP(httptest.NewRecorder(), req)
 		})
 	}
-	measure(app) // freeze the router and warm the pools
-	if got, base := measure(app), measure(plain); got > base {
-		t.Fatalf("qinetic hello: %v allocs/op, plain qilat: %v", got, base)
+	for _, target := range []string{"/hello", "/users/42", "/static/css/site.css"} {
+		if got, base := measure(app, target), measure(plain, target); got > base {
+			t.Errorf("%s: qinetic %v allocs/op, plain qilat %v", target, got, base)
+		}
 	}
 }
 

@@ -47,7 +47,7 @@ bench:
 	cd benchmarks && $(GO) test -run '^$$' -bench . -benchmem -benchtime $(BENCHTIME) -count $(BENCHCOUNT) ./...
 
 fuzz:
-	$(GO) test -run '^$$' -fuzz '^FuzzMatch$$' -fuzztime $(FUZZTIME) .
+	FUZZTIME=$(FUZZTIME) ./scripts/fuzz.sh
 
 vuln:
 	$(GOVULNCHECK) ./...

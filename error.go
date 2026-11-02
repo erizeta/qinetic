@@ -14,6 +14,7 @@ type Error struct {
 	err error
 }
 
+// Error returns the message sent to the client.
 func (e *Error) Error() string { return e.Message }
 
 // Unwrap returns the error that caused e, if any.

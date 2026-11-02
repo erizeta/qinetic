@@ -14,9 +14,9 @@ middleware.
 
 ## Status
 
-qinetic is in early development and has no release yet; the API will change until v1.0.0. Routing, the
-request/response API, serving over HTTP/1.1, HTTP/2, and HTTP/3, and the middleware, rate limiting, CSRF, and
-caching included, work today. See the [changelog](CHANGELOG.md).
+qinetic is pre-1.0: until v1.0.0, a minor version may change the API, with what to change listed in the
+[changelog](CHANGELOG.md). It pins qilat v0.2.0. Coming from Fiber? See
+[docs/migrating-from-fiber.md](docs/migrating-from-fiber.md).
 
 ## Installation
 
@@ -127,6 +127,40 @@ func main() {
 Run it with `go run ./examples/rest`, or test it without a network through `app.Test`, as
 [`examples/rest/main_test.go`](examples/rest/main_test.go) does.
 
+### Routing
+
+| Pattern | Matches | `c.Params` |
+|---|---|---|
+| `/users` | `/users`, and `/users/` unless `StrictRouting` | |
+| `/users/:id` | `/users/42`, not `/users` or `/users/42/x` | `id` |
+| `/users/:id?` | `/users` and `/users/42` (last segment only) | `id`, maybe empty |
+| `/files/*` | `/files`, `/files/a/b` | `*` (or `*1`), maybe empty |
+| `/files/+` | `/files/a/b`, not `/files` | `+` (or `+1`) |
+| `/a/*/b/*` | `/a/x/y/b/z`; inner wildcards are greedy | `*1`, `*2` |
+
+- Handlers run in registration order. `Use(prefix, ...)` matches at segment boundaries (`/api` matches
+  `/api/x`, not `/apiv2`), method routes match the whole path, and `c.Next()` moves to the next match.
+- `Get` also registers HEAD. When nothing matches, the response is 404, or 405 with `Allow` when the path
+  matches routes of other methods.
+- Routing uses the raw path, so `%2F` stays inside one segment; `c.Params` returns it decoded. Paths with
+  empty or dot segments, encoded or not, are not routed: only middleware registered on `/` runs, then 404.
+- Matching is case-insensitive unless `Config.CaseSensitive` is set. Parameters and wildcards are whole
+  segments; patterns Fiber accepts within a segment, such as `/:from-:to`, panic at registration.
+
+### The Ctx
+
+- Request: `Method`, `Path`, `OriginalURL`, `Host`, `Hostname`, `IP`, `IPs`, `Secure`, `Protocol`,
+  `Params`, `ParamsInt`, `Query`, `QueryInt`, `QueryBool`, `Queries`, `Get`, `Cookies`, `Body`,
+  `BodyReader`, `FormValue`, `FormFile`, `MultipartForm`, `Bind()`, `Locals`, `Route`, `Context`, `Request`.
+- Response: `Status`, `Set`, `Append`, `Vary`, `Type`, `Send`, `SendString`, `SendStatus`, `JSON`, `XML`,
+  `Redirect`, `Cookie`, `ClearCookie`, `Attachment`, `Download`, `SendFile`, `SendStream`, `Writer`,
+  `Flush`, `Trailer`.
+- For middleware: `Next`, `StatusCode`, `ResponseSize`, `ResponseHeader`, `ResponseBody`, `Committed`,
+  `HandleError`.
+
+The response is buffered and sent with a `Content-Length` when the handler chain returns, so an
+`ErrorHandler` can still replace it. `SendStream`, `Writer`, `Flush`, and `SendFile` send it as they go.
+
 ### Middleware
 
 Middleware lives under `middleware/`, and each package has `New(config ...Config) qinetic.Handler` with a
@@ -184,6 +218,10 @@ already sent: status and size are still available from `c.StatusCode()` and `c.R
 write returns `qinetic.ErrResponseSent` instead of corrupting the compressed body. Register middleware that
 must change the body, such as a cache, after `compress`.
 `FromStdMiddleware`, `FromQilat`, and `FromStd` bring in net/http and qilat middleware and handlers the same way.
+
+Compressing a page that holds a secret, such as a CSRF token, together with input the client controls lets an
+attacker who can watch response sizes guess the secret (BREACH). Skip `compress` for such pages with its
+`Next` option, or keep reflected input out of them.
 
 ### Rate limiting, CSRF, and storage
 
@@ -243,8 +281,10 @@ and tokens between instances, pass a `Storage` backed by Redis or similar; if it
 ### Caching
 
 `cache.New()` stores 200 responses to GET for a minute, keyed by host, path, and query, and marks responses
-`X-Cache: hit` or `miss`. It stores nothing for requests with `Authorization` or `Cache-Control: no-store`,
-nor for responses with `Set-Cookie`, `Cache-Control` private, no-store, or no-cache, or a streamed body.
+`X-Cache: hit` or `miss`. Requests with `Authorization`, `Cookie`, or `Cache-Control: no-store` bypass it,
+since with cookie sessions their responses are often personal; set `CacheCookieRequests` only with a
+`KeyGenerator` that separates users. Nothing is stored for responses with `Set-Cookie`, `Cache-Control`
+private, no-store, or no-cache, or a streamed body.
 
 Register it after `compress`, as in `app.Use(compress.New(), cache.New())`. The cache then runs inside
 compress: it stores the body before compression, and compress compresses each hit for the client's
@@ -360,6 +400,50 @@ limits, HTTP/2 and HTTP/3 tuning.
 A handler error goes to `Config.ErrorHandler`. The default sends an `*Error`'s code and message (`ErrNotFound`,
 `NewError(422, "name is required")`) and turns any other error into a plain 500, logging the details instead
 of sending them. Bind errors are 400s that never include decoder output.
+
+## Performance
+
+`benchmarks/` compares plain qilat (its `ServeMux` and `qilat.Chain`), qinetic, and Fiber v3.6.1 on the same
+scenarios and the same keep-alive HTTP/1.1 client, with 8 connections per GOMAXPROCS. In memory, the listener
+skips the kernel, so the numbers show server CPU per request; over loopback, the socket path dominates.
+Median of 5 runs on an Apple M5 (10 cores), Go 1.27.3, in ns/op:
+
+| Scenario | In memory: qilat | qinetic | Fiber | Loopback: qilat | qinetic | Fiber |
+|---|---|---|---|---|---|---|
+| Plaintext | 523 | 510 | 360 | 5779 | 5881 | 6572 |
+| JSON | 479 | 565 | 408 | 5878 | 5876 | 6355 |
+| Param route | 441 | 520 | 366 | 5901 | 5895 | 6432 |
+| Last of 100 routes | 457 | 519 | 375 | 5908 | 5854 | 6538 |
+| 5 middleware | 437 | 533 | 373 | 5906 | 5891 | 6551 |
+
+fasthttp spends less CPU per request than qilat, so Fiber leads in memory; over a real socket, in this setup,
+qilat and qinetic are ahead and qinetic costs no measurable time over qilat. Every framework allocates about
+10 times per request here, nearly all of it in the benchmark client. On its own side, a static, parameter, or
+wildcard hello route allocates nothing beyond qilat (`TestHelloAllocs`), and route matching allocates
+nothing (`BenchmarkRouterMatch`).
+
+Reproduce with:
+
+```sh
+cd benchmarks && go test -run '^$' -bench BenchmarkCompare -benchmem -count 5 .
+```
+
+`make bench` runs these and the router and baseline benchmarks.
+
+## Differences from Fiber
+
+| Fiber | qinetic |
+|---|---|
+| fasthttp, HTTP/1.1 only | qilat: HTTP/1.1, HTTP/2, and HTTP/3 from one `App` |
+| `c.Context()` is not canceled when the client disconnects | It is, so work stops when nobody waits for it |
+| Strings point into reused buffers unless `Immutable` | `Params`, `Query`, `Get`, and the rest return copies; `Peek*` variants return `[]byte` |
+| `c.Body()` returns `[]byte` | `c.Body()` returns `([]byte, error)`, since the body is streamed |
+| A non-`*Error` error sends `err.Error()` to the client | It sends a generic 500 and logs the details |
+| `fiber.Ctx` is an interface | `*qinetic.Ctx` is a struct |
+| Paths are normalized, and `%2F` may split segments | Routing uses the raw path; unclean paths get 404 |
+
+[docs/migrating-from-fiber.md](docs/migrating-from-fiber.md) covers routing syntax, middleware, serving, and
+the other changes in detail.
 
 ## Contributing
 

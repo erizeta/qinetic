@@ -35,6 +35,8 @@ type Config struct {
 }
 
 // New returns a handler that serves files from root, or Config.FS, with Range and conditional requests.
+// Files are opened through os.Root, so a symlink inside root cannot lead outside it; symlinks within root
+// must be relative. New panics if root cannot be opened.
 // Mount it under a prefix with Use, as in app.Use("/assets", static.New("./public")), or as a wildcard
 // route, as in app.Get("/assets/*", static.New("./public")); the prefix is removed from the path. If root
 // is a file, it is served for every request. GET and HEAD only; a missing file, or a directory with no
@@ -50,11 +52,16 @@ func New(root string, config ...Config) qinetic.Handler {
 	}
 	fsys, single := cfg.FS, ""
 	if fsys == nil {
+		dir := root
 		if info, err := os.Stat(root); err == nil && !info.IsDir() {
-			fsys, single = os.DirFS(filepath.Dir(root)), filepath.Base(root)
-		} else {
-			fsys = os.DirFS(root)
+			dir, single = filepath.Dir(root), filepath.Base(root)
 		}
+		// os.Root, unlike os.DirFS, refuses paths that leave dir, through symlinks included.
+		r, err := os.OpenRoot(dir)
+		if err != nil {
+			panic(fmt.Sprintf("qinetic/static: %v", err))
+		}
+		fsys = r.FS()
 	}
 	cacheControl := ""
 	if cfg.MaxAge > 0 {
@@ -85,7 +92,7 @@ func New(root string, config ...Config) qinetic.Handler {
 		case errors.Is(err, fs.ErrNotExist):
 			return c.Next()
 		case errors.Is(err, fs.ErrInvalid):
-			// os.DirFS on Windows refuses names with '' or ':'.
+			// Windows file systems refuse names with '\' or ':'.
 			return qinetic.ErrBadRequest
 		case err != nil:
 			return err

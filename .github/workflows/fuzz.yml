@@ -1,0 +1,33 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: Duration per fuzz target
+        default: 10m
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.x
+      - name: Fuzz
+        run: ./scripts/fuzz.sh
+        env:
+          FUZZTIME: ${{ inputs.fuzztime || '10m' }}
+      - name: Upload failing inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-corpus
+          path: "**/testdata/fuzz/**"

@@ -5,7 +5,6 @@ go 1.26.0
 require (
 	github.com/erizeta/qilat v0.2.0
 	github.com/quic-go/quic-go v0.64.1
-	go.uber.org/goleak v1.3.0
 )
 
 require (

@@ -3,6 +3,7 @@ package static
 import (
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -229,4 +230,39 @@ func TestMoreFileCases(t *testing.T) {
 	if r := get(t, app, "GET", "/ns/blob.txt", "Range", "bytes=2-4"); r.code != 206 || r.body != "234" {
 		t.Fatalf("file without Seek: %+v", r)
 	}
+}
+
+// TestSymlinkEscape checks a symlink inside root cannot serve files outside it, as os.DirFS would.
+func TestSymlinkEscape(t *testing.T) {
+	public := tree(t)
+	outside := filepath.Join(filepath.Dir(public), "secret.txt")
+	if err := os.Symlink(outside, filepath.Join(public, "leak.txt")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Dir(public), filepath.Join(public, "up")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("app.css", filepath.Join(public, "alias.css")); err != nil {
+		t.Fatal(err)
+	}
+	app := qinetic.New(qinetic.Config{Logger: slog.New(slog.DiscardHandler)})
+	app.Use("/assets", New(public))
+	for _, target := range []string{"/assets/leak.txt", "/assets/up/secret.txt"} {
+		if r := get(t, app, "GET", target); r.code == 200 || strings.Contains(r.body, "top secret") {
+			t.Errorf("%s: got %d %q through a symlink leaving root", target, r.code, r.body)
+		}
+	}
+	// A relative symlink that stays inside root still works; os.Root refuses absolute targets.
+	if r := get(t, app, "GET", "/assets/alias.css"); r.code != 200 || r.body != "body{}" {
+		t.Errorf("symlink within root: %+v", r)
+	}
+}
+
+func TestMissingRootPanics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("no panic for a missing root")
+		}
+	}()
+	New(filepath.Join(t.TempDir(), "nope"))
 }

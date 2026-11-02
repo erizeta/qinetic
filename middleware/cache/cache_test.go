@@ -21,6 +21,7 @@ import (
 	"github.com/erizeta/qinetic/internal/memory"
 	"github.com/erizeta/qinetic/middleware/compress"
 	"github.com/erizeta/qinetic/middleware/cors"
+	"github.com/erizeta/qinetic/middleware/csrf"
 )
 
 type clock struct {
@@ -456,4 +457,93 @@ func TestConcurrentSameKey(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// FuzzCacheEntry decodes arbitrary stored bytes, as an external store might hold: decoding must not
+// panic, and whatever decodes must encode back to the same bytes.
+func FuzzCacheEntry(f *testing.F) {
+	f.Add(encodeEntry(&entry{status: 200, header: []field{{"Content-Type", "text/plain"}}, body: []byte("hi")}))
+	f.Add(encodeManifest(manifest{names: []string{"origin"}, variants: 3}))
+	f.Add([]byte{formatVersion, kindEntry, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01})
+	f.Add([]byte{})
+	f.Fuzz(func(t *testing.T, b []byte) {
+		kind, payload, ok := header(b)
+		if !ok {
+			return
+		}
+		switch kind {
+		case kindEntry:
+			if e := decodeEntry(payload); e != nil {
+				if again := encodeEntry(e); !bytes.Equal(again, b) {
+					t.Fatalf("entry %x re-encodes as %x", b, again)
+				}
+			}
+		case kindManifest:
+			if m, ok := decodeManifest(payload); ok {
+				if again := encodeManifest(m); !bytes.Equal(again, b) {
+					t.Fatalf("manifest %x re-encodes as %x", b, again)
+				}
+			}
+		}
+	})
+}
+
+// TestCookieRequestsBypass is the regression test for personal pages leaking between users: with cookie
+// sessions, a page for one user must never be served to another.
+func TestCookieRequestsBypass(t *testing.T) {
+	useClock(t)
+	app := qinetic.New()
+	app.Use(New())
+	app.Get("/dashboard", func(c *qinetic.Ctx) error {
+		return c.SendString("hello " + c.Cookies("session", "guest"))
+	})
+	if r := get(t, app, "GET", "/dashboard", "Cookie", "session=alice"); r.cache != "" || r.body != "hello alice" {
+		t.Fatalf("alice: %+v", r)
+	}
+	if r := get(t, app, "GET", "/dashboard", "Cookie", "session=bob"); r.body != "hello bob" {
+		t.Fatalf("bob got another user's page: %+v", r)
+	}
+	if r := get(t, app, "GET", "/dashboard"); r.cache != "miss" || r.body != "hello guest" {
+		t.Fatalf("guest: %+v", r)
+	}
+	if r := get(t, app, "GET", "/dashboard", "Cookie", "session=alice"); r.body != "hello alice" {
+		t.Fatalf("alice got the guest copy: %+v", r)
+	}
+
+	// Opting in with a key that separates users caches per user.
+	perUser := qinetic.New()
+	perUser.Use(New(Config{CacheCookieRequests: true, KeyGenerator: func(c *qinetic.Ctx) string {
+		return c.Path() + "|" + c.Cookies("session")
+	}}))
+	perUser.Get("/dashboard", func(c *qinetic.Ctx) error { return c.SendString("hello " + c.Cookies("session")) })
+	get(t, perUser, "GET", "/dashboard", "Cookie", "session=alice")
+	if r := get(t, perUser, "GET", "/dashboard", "Cookie", "session=alice"); r.cache != "hit" || r.body != "hello alice" {
+		t.Fatalf("opt-in alice: %+v", r)
+	}
+	if r := get(t, perUser, "GET", "/dashboard", "Cookie", "session=bob"); r.cache != "miss" || r.body != "hello bob" {
+		t.Fatalf("opt-in bob: %+v", r)
+	}
+}
+
+// TestCSRFTokenPagesAreNotCached checks a form page carrying a CSRF token is never stored: the first
+// visit sets the token cookie, and later visits send it.
+func TestCSRFTokenPagesAreNotCached(t *testing.T) {
+	useClock(t)
+	app := qinetic.New()
+	app.Use(csrf.New(), New())
+	app.Get("/form", func(c *qinetic.Ctx) error { return c.SendString("token=" + csrf.TokenFromContext(c)) })
+	first := get(t, app, "GET", "/form")
+	cookie := first.header.Get("Set-Cookie")
+	token := strings.TrimPrefix(first.body, "token=")
+	if cookie == "" || token == "" {
+		t.Fatalf("first visit: %+v", first)
+	}
+	second := get(t, app, "GET", "/form", "Cookie", strings.Split(cookie, ";")[0])
+	if second.cache != "" || second.body != first.body {
+		t.Fatalf("returning visit: %+v", second)
+	}
+	other := get(t, app, "GET", "/form")
+	if other.cache == "hit" || strings.Contains(other.body, token) {
+		t.Fatalf("another visitor got the first visitor's token: %+v", other)
+	}
 }

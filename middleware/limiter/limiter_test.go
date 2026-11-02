@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -291,8 +292,37 @@ func TestStorageErrors(t *testing.T) {
 		t.Fatalf("storage error: %+v", r)
 	}
 	m := memory.New(memory.Config{Clock: clk.now})
-	_ = m.Set(context.Background(), keyPrefix+"192.0.2.1", []byte("garbage"), time.Minute)
+	_ = m.Set(context.Background(), storageKey(FixedWindow, "192.0.2.1"), []byte("garbage"), time.Minute)
 	if r := hit(t, newApp(Config{Storage: plainStorage{m}}), "/"); r.code != 500 {
 		t.Fatalf("malformed counter: %+v", r)
+	}
+}
+
+// TestKeysDoNotCollide checks client keys holding ':' and limiters of both algorithms sharing a Storage
+// keep separate counters.
+func TestKeysDoNotCollide(t *testing.T) {
+	clk := useClock(t)
+	shared := memory.New(memory.Config{Clock: clk.now})
+	byHeader := func(c *qinetic.Ctx) string { return c.Get("X-Key") }
+	fixed := newApp(Config{Max: 1, Storage: shared, KeyGenerator: byHeader})
+	sliding := newApp(Config{Max: 1, Storage: shared, KeyGenerator: byHeader, Algorithm: SlidingWindow})
+	send := func(app *qinetic.App, key string) int {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-Key", key)
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	idx := strconv.FormatInt(clk.now().UnixNano()/int64(time.Minute), 10)
+	// "a" in the sliding window is counted under a key ending in ":<window>"; "a:<window>" in the fixed
+	// window must not share it.
+	if send(sliding, "a") != 200 || send(fixed, "a:"+idx) != 200 || send(fixed, "a") != 200 {
+		t.Fatal("first requests of distinct keys were limited")
+	}
+	if send(sliding, "a") != 429 || send(fixed, "a:"+idx) != 429 {
+		t.Fatal("second requests were not limited")
 	}
 }

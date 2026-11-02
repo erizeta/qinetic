@@ -40,6 +40,10 @@ type Config struct {
 	CacheHeader string
 	// Storage holds the responses. If nil, an in-memory storage per middleware holding at most 64 MiB.
 	Storage qinetic.Storage
+	// CacheCookieRequests lets requests that carry a Cookie header use the cache. Off by default: with
+	// cookie-based sessions such responses are often personal, and storing one would serve it to others.
+	// Turn it on only with a KeyGenerator that separates users, or for routes that never read cookies.
+	CacheCookieRequests bool
 	// Logger receives storage errors. The request is then served without the cache, so an outage of an
 	// external storage does not fail requests. If nil, slog.Default is used.
 	Logger *slog.Logger
@@ -61,7 +65,8 @@ const (
 var unstored = []string{"connection", "keep-alive", "transfer-encoding", "content-length", "date", "set-cookie", "x-cache"}
 
 // New returns the middleware. Only GET responses are stored; GET and HEAD requests are served from them.
-// It stores nothing for a request with Authorization or Cache-Control: no-store, nor for a response with
+// Requests with Authorization, Cookie (unless CacheCookieRequests), or Cache-Control: no-store bypass the
+// cache entirely, as they may get personal responses. Nothing is stored for a response with
 // Set-Cookie, Cache-Control private, no-store, or no-cache, Vary: *, a committed (streamed) body, or more
 // than MaxVaryHeaders or MaxVariants. Headers set by middleware before this one are not stored, since
 // they run again on every hit. Register it after compress: before compress it sees no body to store.
@@ -128,7 +133,8 @@ func (m *middleware) handle(c *qinetic.Ctx) error {
 	if method != http.MethodGet && method != http.MethodHead {
 		return c.Next()
 	}
-	if c.Get("Authorization") != "" || hasToken(c.Get("Cache-Control"), "no-store") {
+	if c.Get("Authorization") != "" || hasToken(c.Get("Cache-Control"), "no-store") ||
+		!m.cfg.CacheCookieRequests && c.Request().Header.Has("Cookie") {
 		return c.Next()
 	}
 	base := hashKey(m.cfg.KeyGenerator(c))
@@ -360,8 +366,9 @@ func encodeEntry(e *entry) []byte {
 func decodeEntry(p []byte) *entry {
 	r := reader{b: p}
 	status := r.uvarint()
-	// Stored data may come from an external store: range-check before converting.
-	if status < 100 || status > 999 {
+	// Stored data may come from an external store: range-check before converting. A 1xx status is not
+	// a final response, so no stored copy holds one.
+	if status < 200 || status > 999 {
 		return nil
 	}
 	e := &entry{status: int(status)}
@@ -425,7 +432,8 @@ func (r *reader) uvarint() uint64 {
 		return 0
 	}
 	v, n := binary.Uvarint(r.b)
-	if n <= 0 {
+	// Only the shortest encoding is accepted, as the encoder writes, so each value has one form.
+	if n <= 0 || n != len(binary.AppendUvarint(nil, v)) {
 		r.err = errCorrupt
 		return 0
 	}

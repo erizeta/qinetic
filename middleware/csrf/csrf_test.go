@@ -51,14 +51,16 @@ func (p plainStorage) Delete(ctx context.Context, k string) error { return p.m.D
 func (p plainStorage) Close() error                               { return p.m.Close() }
 
 type response struct {
-	code   int
-	body   string
-	cookie *http.Cookie // the csrf_ Set-Cookie, if any
+	code    int
+	body    string
+	cookie  *http.Cookie // the csrf_ Set-Cookie, if any
+	cookies []*http.Cookie
 }
 
 type request struct {
 	method, target string
 	cookie, token  string
+	cookieName     string // the token cookie's name; by default as the middleware names it for the scheme
 	hdr            map[string]string
 	form           string
 }
@@ -84,7 +86,14 @@ func sendFrom(t *testing.T, app *qinetic.App, r request, remote string) response
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 	if r.cookie != "" {
-		req.AddCookie(&http.Cookie{Name: "csrf_", Value: r.cookie})
+		name := r.cookieName
+		if name == "" {
+			name = "csrf_"
+			if strings.HasPrefix(target, "https://") || remote == "10.0.0.1:1" && r.hdr["X-Forwarded-Proto"] == "https" {
+				name = "__Host-csrf_"
+			}
+		}
+		req.AddCookie(&http.Cookie{Name: name, Value: r.cookie})
 	}
 	if r.token != "" {
 		req.Header.Set("X-Csrf-Token", r.token)
@@ -101,9 +110,9 @@ func sendFrom(t *testing.T, app *qinetic.App, r request, remote string) response
 	}
 	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(resp.Body)
-	out := response{code: resp.StatusCode, body: string(b)}
+	out := response{code: resp.StatusCode, body: string(b), cookies: resp.Cookies()}
 	for _, ck := range resp.Cookies() {
-		if ck.Name == "csrf_" {
+		if ck.Name == "csrf_" || ck.Name == "__Host-csrf_" {
 			out.cookie = ck
 		}
 	}
@@ -364,5 +373,39 @@ func TestOriginSchemeAndReferer(t *testing.T) {
 				t.Fatalf("got %d %q, want %d %q", r.code, r.body, tt.code, tt.body)
 			}
 		})
+	}
+}
+
+// TestHostPrefix checks the token cookie gets the __Host- prefix over HTTPS, so a cookie tossed in from a
+// subdomain, which cannot use that prefix, is not taken for it.
+func TestHostPrefix(t *testing.T) {
+	useClock(t)
+	app := newApp(Config{})
+	ck := send(t, app, request{method: "GET", target: "https://example.com/"}).cookie
+	if ck == nil || ck.Name != "__Host-csrf_" || !ck.Secure || ck.Path != "/" || ck.Domain != "" {
+		t.Fatalf("HTTPS cookie %+v", ck)
+	}
+	if plain := send(t, app, request{method: "GET"}).cookie; plain == nil || plain.Name != "csrf_" {
+		t.Fatalf("HTTP cookie %+v", plain)
+	}
+	post := request{method: "POST", target: "https://example.com/", cookie: ck.Value, token: ck.Value,
+		hdr: map[string]string{"Origin": "https://example.com"}}
+	if r := send(t, app, post); r.code != 200 {
+		t.Fatalf("POST with the __Host- cookie: %d %q", r.code, r.body)
+	}
+	tossed := post
+	tossed.cookieName = "csrf_"
+	if r := send(t, app, tossed); r.code != 403 || r.body != "missing CSRF token" {
+		t.Fatalf("tossed csrf_ cookie over HTTPS: %d %q", r.code, r.body)
+	}
+	for name, cfg := range map[string]Config{
+		"custom name":   {CookieName: "xsrf"},
+		"domain":        {CookieDomain: "example.com"},
+		"narrower path": {CookiePath: "/app"},
+	} {
+		cookies := send(t, newApp(cfg), request{method: "GET", target: "https://example.com/"}).cookies
+		if len(cookies) != 1 || strings.HasPrefix(cookies[0].Name, "__Host-") {
+			t.Errorf("%s: cookies %v, want one without the __Host- prefix", name, cookies)
+		}
 	}
 }

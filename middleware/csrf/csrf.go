@@ -33,7 +33,8 @@ var (
 type Config struct {
 	// Next skips the middleware when it returns true.
 	Next func(c *qinetic.Ctx) bool
-	// CookieName names the token cookie. If empty, "csrf_".
+	// CookieName names the token cookie. If empty, "__Host-csrf_" over HTTPS when CookieDomain is empty and
+	// CookiePath is "/", so a subdomain cannot overwrite it, and "csrf_" otherwise.
 	CookieName string
 	// CookieDomain and CookiePath scope the cookie. CookiePath defaults to "/".
 	CookieDomain string
@@ -69,6 +70,8 @@ type (
 type middleware struct {
 	cfg     Config
 	trusted map[string]bool
+	// hostPrefix uses the __Host- name over HTTPS, since CookieName was left to its default.
+	hostPrefix bool
 }
 
 // New returns the middleware. Safe methods (GET, HEAD, OPTIONS, TRACE) get a token, issued or refreshed.
@@ -80,12 +83,15 @@ func New(config ...Config) qinetic.Handler {
 	if len(config) > 0 {
 		cfg = config[0]
 	}
+	hostPrefix := cfg.CookieName == ""
 	if cfg.CookieName == "" {
 		cfg.CookieName = "csrf_"
 	}
 	if cfg.CookiePath == "" {
 		cfg.CookiePath = "/"
 	}
+	// Browsers accept a __Host- cookie only with Secure, Path=/, and no Domain.
+	hostPrefix = hostPrefix && cfg.CookiePath == "/" && cfg.CookieDomain == ""
 	if cfg.CookieSameSite == "" {
 		cfg.CookieSameSite = qinetic.CookieSameSiteLax
 	}
@@ -98,7 +104,7 @@ func New(config ...Config) qinetic.Handler {
 	if cfg.Storage == nil {
 		cfg.Storage = memory.New(memory.Config{Clock: func() time.Time { return now() }})
 	}
-	m := &middleware{cfg: cfg, trusted: map[string]bool{}}
+	m := &middleware{cfg: cfg, trusted: map[string]bool{}, hostPrefix: hostPrefix}
 	for _, o := range cfg.TrustedOrigins {
 		norm, err := normalizeOrigin(o)
 		if err != nil {
@@ -147,7 +153,7 @@ func (m *middleware) handle(c *qinetic.Ctx) error {
 		return c.Next()
 	}
 	c.Locals(middlewareKey{}, m)
-	cookie := c.Cookies(m.cfg.CookieName)
+	cookie := c.Cookies(m.cookieName(c))
 	if safeMethod(c.Method()) {
 		token, err := m.issue(c, cookie)
 		if err != nil {
@@ -278,9 +284,18 @@ func (m *middleware) lookup(c *qinetic.Ctx, token string) (time.Time, bool, erro
 
 func (m *middleware) cookie(c *qinetic.Ctx, value string, maxAge int) *qinetic.Cookie {
 	return &qinetic.Cookie{
-		Name: m.cfg.CookieName, Value: value, Path: m.cfg.CookiePath, Domain: m.cfg.CookieDomain,
+		Name: m.cookieName(c), Value: value, Path: m.cfg.CookiePath, Domain: m.cfg.CookieDomain,
 		MaxAge: maxAge, Secure: c.Secure(), HTTPOnly: !m.cfg.CookieScriptAccess, SameSite: m.cfg.CookieSameSite,
 	}
+}
+
+// cookieName is the token cookie's name for the request: with the __Host- prefix over HTTPS, so a
+// subdomain cannot set it for this host and learn the pair of cookie and token, unless configured otherwise.
+func (m *middleware) cookieName(c *qinetic.Ctx) string {
+	if m.hostPrefix && c.Secure() {
+		return "__Host-" + m.cfg.CookieName
+	}
+	return m.cfg.CookieName
 }
 
 // storageKey hashes the token, so the storage never holds a usable token, such as in a dump of Redis.
@@ -306,7 +321,7 @@ func DeleteToken(c *qinetic.Ctx) error {
 	if !ok {
 		return ErrNoMiddleware
 	}
-	if token := c.Cookies(m.cfg.CookieName); token != "" {
+	if token := c.Cookies(m.cookieName(c)); token != "" {
 		if err := m.cfg.Storage.Delete(c.Context(), storageKey(token)); err != nil {
 			return err
 		}
