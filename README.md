@@ -14,8 +14,10 @@ middleware.
 
 ## Status
 
-qinetic is in early development and has no release yet. The API is not usable until the router and `App`
-land, and it will change until v1.0.0. See the [changelog](CHANGELOG.md).
+qinetic is in early development and has no release yet; the API will change until v1.0.0. Routing, groups,
+the `c.Next()` chain, error handling, and in-memory testing with `app.Test` work today. An `App` is a
+`qilat.Handler`, so it can already be served by a `qilat.Server`; `app.Listen` and the request/response helpers
+come next. See the [changelog](CHANGELOG.md).
 
 ## Installation
 

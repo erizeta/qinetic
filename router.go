@@ -3,7 +3,6 @@ package qinetic
 import (
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -11,10 +10,11 @@ import (
 // route is one entry of the route stack. Middleware (use) routes match any method by path prefix;
 // method routes match one method and the whole path.
 type route struct {
-	method string
-	path   string
-	use    bool
-	pat    *pattern
+	method   string
+	path     string
+	use      bool
+	pat      *pattern
+	handlers []Handler
 }
 
 // router keeps routes in registration order, which is the order Next visits them. The candidate lists
@@ -30,6 +30,8 @@ type router struct {
 
 	tables  map[string]*methodTable
 	useOnly *methodTable // for methods without routes of their own
+	// rootUse is middleware registered on "/", the only routes run for paths that are not routable.
+	rootUse []int
 }
 
 // methodTable lists, in stack order, the routes that can match a request with one method.
@@ -55,8 +57,9 @@ func newRouter(caseSensitive, strict bool) *router {
 
 // add registers a route and returns its stack index. It panics on an invalid pattern or once the router
 // has started serving; the mutex makes a registration racing the first lookup either land or panic.
-func (r *router) add(method, path string, use bool) int {
-	pat, err := parsePattern(path, r.caseSensitive, r.strict)
+func (r *router) add(method, path string, use bool, handlers []Handler) int {
+	// A middleware prefix means the same with or without a trailing slash, even under strict routing.
+	pat, err := parsePattern(path, r.caseSensitive, r.strict && !use)
 	if err != nil {
 		panic(fmt.Sprintf("qinetic: invalid route %q: %v", path, err))
 	}
@@ -65,7 +68,7 @@ func (r *router) add(method, path string, use bool) int {
 	if r.frozen.Load() {
 		panic(fmt.Sprintf("qinetic: route %s %q registered after the app started serving", method, path))
 	}
-	r.routes = append(r.routes, &route{method: method, path: path, use: use, pat: pat})
+	r.routes = append(r.routes, &route{method: method, path: path, use: use, pat: pat, handlers: handlers})
 	return len(r.routes) - 1
 }
 
@@ -81,6 +84,11 @@ func (r *router) freeze() {
 			}
 		}
 		r.useOnly = r.buildTable("")
+		for i, rt := range r.routes {
+			if rt.use && len(rt.pat.segs) == 0 {
+				r.rootUse = append(r.rootUse, i)
+			}
+		}
 	})
 }
 
@@ -127,8 +135,8 @@ func (r *router) buildTable(method string) *methodTable {
 	return t
 }
 
-func (r *router) table(method []byte) *methodTable {
-	if t, ok := r.tables[string(method)]; ok {
+func (r *router) table(method string) *methodTable {
+	if t, ok := r.tables[method]; ok {
 		return t
 	}
 	return r.useOnly
@@ -189,18 +197,26 @@ type matcher struct {
 	params paramOffsets
 }
 
-// reset prepares m for a request. It returns false when rawPath is not routable, which is a 404.
-func (m *matcher) reset(r *router, method, rawPath []byte) bool {
+var rootPath = []byte("/")
+
+// reset prepares m for a request. It returns false when rawPath is not routable: only root middleware
+// is then visited, so it can still log or recover the 404.
+func (m *matcher) reset(r *router, method string, rawPath []byte) bool {
 	r.freeze()
-	m.r, m.pos, m.cands = r, 0, nil
+	m.r, m.pos = r, 0
 	path, ok := routingPath(rawPath, r.strict)
 	if !ok {
-		m.path = nil
+		m.path, m.cands = rootPath, r.rootUse
 		return false
 	}
 	m.path = path
 	m.cands = r.table(method).candidates(path, !r.caseSensitive)
 	return true
+}
+
+// clear drops references to the request so a pooled matcher does not retain it.
+func (m *matcher) clear() {
+	m.path, m.cands = nil, nil
 }
 
 // next returns the next matching route and fills m.params for it, or nil when none is left.
@@ -215,13 +231,13 @@ func (m *matcher) next() *route {
 	return nil
 }
 
-// allowed returns the Allow header value for a path no route of the request method matched: the sorted
-// methods whose routes match it, or "" when none does. It runs only on the 404/405 path.
-func (r *router) allowed(rawPath []byte) string {
+// allowed returns the sorted methods whose routes match rawPath, for the Allow header of a 405.
+// It runs only on the 404/405 path.
+func (r *router) allowed(rawPath []byte) []string {
 	r.freeze()
 	path, ok := routingPath(rawPath, r.strict)
 	if !ok {
-		return ""
+		return nil
 	}
 	var params paramOffsets
 	var methods []string
@@ -234,5 +250,5 @@ func (r *router) allowed(rawPath []byte) string {
 		}
 	}
 	slices.Sort(methods)
-	return strings.Join(methods, ", ")
+	return methods
 }

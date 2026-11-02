@@ -1,0 +1,238 @@
+{
+	"ops": [
+		{
+			"op": "use",
+			"label": "root"
+		},
+		{
+			"op": "use",
+			"path": "/api",
+			"label": "api"
+		},
+		{
+			"op": "get",
+			"path": "/api/users",
+			"label": "users",
+			"next": true
+		},
+		{
+			"op": "group",
+			"path": "/api/v1",
+			"name": "v1",
+			"label": "v1"
+		},
+		{
+			"op": "get",
+			"group": "v1",
+			"path": "/users/:id",
+			"label": "v1-user"
+		},
+		{
+			"op": "group",
+			"group": "v1",
+			"path": "/admin",
+			"name": "admin",
+			"label": "admin"
+		},
+		{
+			"op": "post",
+			"group": "admin",
+			"path": "/",
+			"label": "admin-post"
+		},
+		{
+			"op": "use",
+			"group": "v1",
+			"path": "/users",
+			"label": "v1-users-mw"
+		},
+		{
+			"op": "get",
+			"path": "/api/*",
+			"label": "api-wild",
+			"next": true
+		},
+		{
+			"op": "get",
+			"path": "/:page",
+			"label": "page"
+		},
+		{
+			"op": "all",
+			"path": "/any",
+			"label": "any"
+		},
+		{
+			"op": "use",
+			"path": "/apiv2",
+			"label": "apiv2"
+		},
+		{
+			"op": "get",
+			"path": "/api/users",
+			"label": "users-2"
+		},
+		{
+			"op": "put",
+			"path": "/api/users/:id",
+			"label": "put-user"
+		}
+	],
+	"requests": [
+		{
+			"method": "GET",
+			"path": "/api/users",
+			"trace": [
+				"root",
+				"api",
+				"users",
+				"api-wild",
+				"users-2"
+			],
+			"status": 200
+		},
+		{
+			"method": "HEAD",
+			"path": "/api/users",
+			"trace": [
+				"root",
+				"api",
+				"users",
+				"api-wild",
+				"users-2"
+			],
+			"status": 200
+		},
+		{
+			"method": "GET",
+			"path": "/api/v1/users/7",
+			"trace": [
+				"root",
+				"api",
+				"v1",
+				"v1-user"
+			],
+			"status": 200
+		},
+		{
+			"method": "POST",
+			"path": "/api/v1/admin",
+			"trace": [
+				"root",
+				"api",
+				"v1",
+				"admin",
+				"admin-post"
+			],
+			"status": 200
+		},
+		{
+			"method": "GET",
+			"path": "/api/v1/admin",
+			"trace": [
+				"root",
+				"api",
+				"v1",
+				"admin",
+				"api-wild"
+			],
+			"status": 404
+		},
+		{
+			"method": "DELETE",
+			"path": "/api/users",
+			"trace": [
+				"root",
+				"api"
+			],
+			"status": 405,
+			"allow": "GET, HEAD"
+		},
+		{
+			"method": "DELETE",
+			"path": "/api/users/7",
+			"trace": [
+				"root",
+				"api"
+			],
+			"status": 405,
+			"allow": "GET, HEAD, PUT"
+		},
+		{
+			"method": "GET",
+			"path": "/apiv2/x",
+			"trace": [
+				"root",
+				"apiv2"
+			],
+			"status": 404
+		},
+		{
+			"method": "GET",
+			"path": "/about",
+			"trace": [
+				"root",
+				"page"
+			],
+			"status": 200
+		},
+		{
+			"method": "PUT",
+			"path": "/any",
+			"trace": [
+				"root",
+				"any"
+			],
+			"status": 200
+		},
+		{
+			"method": "PROPFIND",
+			"path": "/any",
+			"trace": null,
+			"status": 501
+		},
+		{
+			"method": "GET",
+			"path": "/",
+			"trace": [
+				"root"
+			],
+			"status": 404
+		},
+		{
+			"method": "GET",
+			"path": "/api",
+			"trace": [
+				"root",
+				"api",
+				"api-wild",
+				"page"
+			],
+			"status": 200
+		},
+		{
+			"method": "GET",
+			"path": "/API/USERS",
+			"trace": [
+				"root",
+				"api",
+				"users",
+				"api-wild",
+				"users-2"
+			],
+			"status": 200
+		},
+		{
+			"method": "POST",
+			"path": "/api/v1/users/7",
+			"trace": [
+				"root",
+				"api",
+				"v1",
+				"v1-users-mw"
+			],
+			"status": 405,
+			"allow": "GET, HEAD"
+		}
+	]
+}

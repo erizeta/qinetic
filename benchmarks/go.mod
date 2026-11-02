@@ -8,6 +8,7 @@ require (
 )
 
 require (
+	github.com/erizeta/qinetic v0.0.0-00010101000000-000000000000
 	github.com/gofiber/schema v1.8.8 // indirect
 	github.com/gofiber/utils/v2 v2.6.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -25,3 +26,5 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )
+
+replace github.com/erizeta/qinetic => ../

@@ -16,7 +16,7 @@ type testRoute struct {
 func buildRouter(o routeOpts, routes []testRoute) *router {
 	r := newRouter(o.caseSensitive, o.strict)
 	for _, rt := range routes {
-		r.add(rt.method, rt.path, rt.use)
+		r.add(rt.method, rt.path, rt.use, nil)
 	}
 	return r
 }
@@ -24,9 +24,7 @@ func buildRouter(o routeOpts, routes []testRoute) *router {
 // walk returns the stack indexes Next would visit for a request.
 func walk(r *router, method, path string) []int {
 	var m matcher
-	if !m.reset(r, []byte(method), []byte(path)) {
-		return nil
-	}
+	m.reset(r, method, []byte(path))
 	var got []int
 	for rt := m.next(); rt != nil; rt = m.next() {
 		got = append(got, slices.Index(r.routes, rt))
@@ -84,7 +82,8 @@ func TestRouterStackOrder(t *testing.T) {
 		{"DELETE", "/api/users/7", []int{0, 1, 4}},
 		{"PROPFIND", "/api/users", []int{0, 1, 4}},
 		{"PATCH", "/api/users", []int{0, 1, 4, 12}},
-		{"GET", "/a//b", nil},
+		{"GET", "/a//b", []int{0}},
+		{"GET", "/api/../x", []int{0}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
@@ -133,7 +132,7 @@ func TestRouterAllowed(t *testing.T) {
 		{"/a//b", ""},
 	}
 	for _, tt := range tests {
-		if got := r.allowed([]byte(tt.path)); got != tt.want {
+		if got := strings.Join(r.allowed([]byte(tt.path)), ", "); got != tt.want {
 			t.Errorf("allowed(%q) = %q, want %q", tt.path, got, tt.want)
 		}
 	}
@@ -147,20 +146,20 @@ func TestRouterInvalidPatternPanics(t *testing.T) {
 			t.Fatalf("panic = %q, want the pattern and the reason", msg)
 		}
 	}()
-	r.add("GET", "/a/:id/:id", false)
+	r.add("GET", "/a/:id/:id", false, nil)
 }
 
 func TestRouterAddAfterFreezePanics(t *testing.T) {
 	r := newRouter(false, false)
-	r.add("GET", "/", false)
+	r.add("GET", "/", false, nil)
 	var m matcher
-	m.reset(r, []byte("GET"), []byte("/"))
+	m.reset(r, "GET", []byte("/"))
 	defer func() {
 		if msg := fmt.Sprint(recover()); !strings.Contains(msg, "after the app started serving") {
 			t.Fatalf("panic = %q", msg)
 		}
 	}()
-	r.add("GET", "/late", false)
+	r.add("GET", "/late", false, nil)
 }
 
 // TestRouterAddRacesFreeze runs registration against the first lookup; under -race it must be clean,
@@ -181,11 +180,11 @@ func TestRouterAddRacesFreeze(t *testing.T) {
 						mu.Unlock()
 					}
 				}()
-				r.add("GET", path, false)
+				r.add("GET", path, false, nil)
 			})
 		}
 		var m matcher
-		m.reset(r, []byte("GET"), []byte("/r0"))
+		m.reset(r, "GET", []byte("/r0"))
 		_ = m.next()
 		wg.Wait()
 		if len(r.routes) != len(landed) {
@@ -200,10 +199,13 @@ func TestRouterAddRacesFreeze(t *testing.T) {
 }
 
 func TestRouterMatchAllocs(t *testing.T) {
+	if raceEnabled {
+		t.Skip("allocation counts differ under the race detector")
+	}
 	r := buildRouter(routeOpts{}, benchRoutes())
 	for _, tt := range benchLookups {
 		var m matcher
-		method, path := []byte(tt.method), []byte(tt.path)
+		method, path := tt.method, []byte(tt.path)
 		allocs := testing.AllocsPerRun(100, func() {
 			m.reset(r, method, path)
 			if m.next() == nil {
@@ -257,7 +259,7 @@ func BenchmarkRouterMatch(b *testing.B) {
 	r := buildRouter(routeOpts{}, benchRoutes())
 	for _, tt := range benchLookups {
 		b.Run(tt.name, func(b *testing.B) {
-			method, path := []byte(tt.method), []byte(tt.path)
+			method, path := tt.method, []byte(tt.path)
 			var m matcher
 			visited := 0
 			b.ReportAllocs()
