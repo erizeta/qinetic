@@ -15,8 +15,8 @@ middleware.
 ## Status
 
 qinetic is in early development and has no release yet; the API will change until v1.0.0. Routing, the
-request/response API, serving over HTTP/1.1, HTTP/2, and HTTP/3, and the basic middleware work today; rate
-limiting, CSRF, and caching come next. See the [changelog](CHANGELOG.md).
+request/response API, serving over HTTP/1.1, HTTP/2, and HTTP/3, and the middleware, rate limiting and CSRF
+included, work today; caching comes next. See the [changelog](CHANGELOG.md).
 
 ## Installation
 
@@ -140,6 +140,8 @@ Middleware lives under `middleware/`, and each package has `New(config ...Config
 | `cors` | Exact and `https://*.example.com` origins, preflight, credentials (refuses `*` with credentials at startup), always `Vary: Origin` |
 | `compress` | gzip or other codings through `qilat.CompressWith`, skipping small bodies, images, and Range requests |
 | `static` | Files from a directory or `fs.FS`, with Range, 304, and index files; listings only with `Browse`; `..` refused |
+| `limiter` | Fixed or sliding window per key (IP by default), `X-RateLimit-*` headers, 429 with `Retry-After` |
+| `csrf` | Refuses cross-origin unsafe requests (`Sec-Fetch-Site`, `Origin`) and requires a stored token for every one |
 
 ```go
 package main
@@ -181,6 +183,60 @@ already sent: status and size are still available from `c.StatusCode()` and `c.R
 write returns `qinetic.ErrResponseSent` instead of corrupting the compressed body. Register middleware that
 must change the body, such as a cache, after `compress`.
 `FromStdMiddleware`, `FromQilat`, and `FromStd` bring in net/http and qilat middleware and handlers the same way.
+
+### Rate limiting, CSRF, and storage
+
+```go
+package main
+
+import (
+	"html/template"
+	"log"
+	"time"
+
+	"github.com/erizeta/qinetic"
+	"github.com/erizeta/qinetic/middleware/csrf"
+	"github.com/erizeta/qinetic/middleware/limiter"
+)
+
+var page = template.Must(template.New("form").Parse(`<form method="post" action="/comments">
+<input type="hidden" name="_csrf" value="{{.}}">
+<textarea name="body"></textarea>
+<button>Send</button>
+</form>`))
+
+func newApp() *qinetic.App {
+	app := qinetic.New()
+	// 20 requests per minute per IP, counted over a sliding window.
+	app.Use(limiter.New(limiter.Config{Max: 20, Expiration: time.Minute, Algorithm: limiter.SlidingWindow}))
+	app.Use(csrf.New())
+
+	app.Get("/", func(c *qinetic.Ctx) error {
+		c.Type("html")
+		return page.Execute(c.Writer(), csrf.TokenFromContext(c))
+	})
+	app.Post("/comments", func(c *qinetic.Ctx) error {
+		// Only reached with the token from the form and a same-origin request.
+		return c.SendString("saved: " + c.FormValue("body"))
+	})
+	return app
+}
+
+func main() {
+	log.Fatal(newApp().Listen(":3000"))
+}
+```
+
+`csrf` checks every POST, PUT, PATCH, and DELETE twice: a browser-marked cross-site request, or one whose
+`Origin` is neither the host nor in `TrustedOrigins`, is refused, and the token sent in the `X-Csrf-Token`
+header or `_csrf` form field must match the `csrf_` cookie and still be stored. The cookie is HttpOnly by
+default, so pages get the token from `csrf.TokenFromContext(c)`; call `csrf.DeleteToken(c)` on login and
+logout. Rejected requests do not use up the rate limit.
+
+`limiter` and `csrf` keep state in a `qinetic.Storage`, in memory by default and per middleware. The memory
+store starts no goroutine: expired entries go on access, and it holds at most 100,000 entries. To share limits
+and tokens between instances, pass a `Storage` backed by Redis or similar; if it also implements
+`qinetic.Incrementer`, limits are counted atomically across them.
 
 ### Strings and lifetimes
 

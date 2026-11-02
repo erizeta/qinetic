@@ -41,6 +41,12 @@ changes, each listed with what to change.
   `qilat.Server` setting; `BodyLimit`, `Logger`, and `DebugPoison` also apply to the server.
 - Middleware packages `recovery`, `logger`, `requestid`, `cors`, `compress`, and `static`, each with a `Next`
   option. Static files are mounted with `app.Use(prefix, static.New(root))` or a wildcard route.
+- `Storage` and `Incrementer` interfaces for middleware state, with an in-memory default that starts no
+  goroutine and holds at most 100,000 entries.
+- `limiter` middleware: fixed or sliding window, `X-RateLimit-*` headers, 429 with `Retry-After`,
+  `SkipFailedRequests`/`SkipSuccessfulRequests`, atomic with an `Incrementer` storage.
+- `csrf` middleware: origin check from `Sec-Fetch-Site` and `Origin`, plus a stored token required for every
+  unsafe request; `TokenFromContext` and `DeleteToken`.
 - Adapters `FromQilatMiddleware`, `FromStdMiddleware`, `FromQilat`, and `FromStd`, and `c.StatusCode`,
   `c.ResponseSize`, and `c.HandleError` for middleware that report on the response. Once an adapted qilat
   handler or middleware has finished the response, further body writes return `ErrResponseSent` instead of
