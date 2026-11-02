@@ -4,10 +4,11 @@ GOVULNCHECK_VERSION ?= v1.9.0
 GOLANGCI_LINT ?= $(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 GOVULNCHECK ?= $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
+FUZZTIME ?= 30s
 BENCHTIME ?= 1s
 BENCHCOUNT ?= 1
 
-.PHONY: all fmt fmt-check vet lint test race cover bench vuln
+.PHONY: all fmt fmt-check vet lint test race cover bench fuzz vuln
 
 all: lint race
 
@@ -38,7 +39,11 @@ cover:
 	$(GO) tool cover -func=coverage.out | tail -n 1
 
 bench:
+	$(GO) test -run '^$$' -bench . -benchmem -benchtime $(BENCHTIME) -count $(BENCHCOUNT) ./...
 	cd benchmarks && $(GO) test -run '^$$' -bench . -benchmem -benchtime $(BENCHTIME) -count $(BENCHCOUNT) ./...
+
+fuzz:
+	$(GO) test -run '^$$' -fuzz '^FuzzMatch$$' -fuzztime $(FUZZTIME) .
 
 vuln:
 	$(GOVULNCHECK) ./...

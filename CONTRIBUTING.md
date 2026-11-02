@@ -24,7 +24,8 @@ Common commands:
 | `make test` | Run unit tests and benchmark sanity checks |
 | `make race` | Run the same with the race detector |
 | `make cover` | Run tests with coverage and print a summary |
-| `make bench` | Run benchmarks in `benchmarks/` |
+| `make bench` | Run benchmarks, including comparisons in `benchmarks/` |
+| `make fuzz` | Run the fuzz target for `FUZZTIME` (default `30s`) |
 | `make vuln` | Run `govulncheck` |
 
 golangci-lint and govulncheck are run with `go run` at pinned versions, so no global install is needed.
