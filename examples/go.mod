@@ -5,7 +5,7 @@ go 1.26.0
 replace github.com/erizeta/qinetic => ../
 
 require (
-	github.com/erizeta/qilat v0.2.1
+	github.com/erizeta/qilat v0.2.2
 	github.com/erizeta/qinetic v0.0.0-00010101000000-000000000000
 )
 
