@@ -309,6 +309,60 @@ If the storage fails, requests are served uncached and the error is logged.
   (4 MiB by default) it fails with `ErrRequestEntityTooLarge`.
 - `c.Context()` is canceled when the client disconnects and may be kept; `c` itself may not.
 
+#### Work that outlives the request
+
+Once the handler chain returns, its `Ctx` is reset and reused for another request, and the request body
+buffer with it. A goroutine that is still running then must not touch `c`: copy what it needs first, and give
+it a context that is not canceled when the request ends.
+
+```go
+package main
+
+import (
+	"bytes"
+	"context"
+	"log"
+	"log/slog"
+
+	"github.com/erizeta/qinetic"
+)
+
+// sendReceipt stands in for slow work that outlives the request, such as sending an email.
+var sendReceipt = func(ctx context.Context, orderID string, payload []byte) {
+	slog.InfoContext(ctx, "receipt sent", "order", orderID, "bytes", len(payload))
+}
+
+func newApp() *qinetic.App {
+	app := qinetic.New()
+	app.Post("/orders/:id", func(c *qinetic.Ctx) error {
+		// c is reused once this handler returns, so copy what the goroutine needs first.
+		id := c.Params("id") // strings are already copies
+		body, err := c.Body()
+		if err != nil {
+			return err
+		}
+		payload := bytes.Clone(body) // the body buffer is reused: copy it
+		// Keep the request's values without its cancellation, which fires when the handler returns.
+		ctx := context.WithoutCancel(c.Context())
+
+		go sendReceipt(ctx, id, payload) // never touches c
+		return c.SendStatus(202)
+	})
+	return app
+}
+
+func main() {
+	log.Fatal(newApp().Listen(":3000"))
+}
+```
+
+- Use `c` from one goroutine at a time; it has no locks. Goroutines the handler waits for, through a
+  `sync.WaitGroup` or `errgroup`, may use it as long as they do not use it at once.
+- Strings from `Params`, `Query`, `Get`, `Cookies`, and `FormValue` can be kept as they are; `[]byte` from
+  `c.Body()` and the `Peek*` methods must be copied.
+- `Config.DebugPoison` makes any use of a `Ctx` after its handler returned panic, so these mistakes show up
+  in tests instead of as one request reading another's data.
+
 ### Behind a proxy
 
 Set `Config.TrustedProxies` to your proxies' addresses. Only requests from them have their `X-Forwarded-Proto`
