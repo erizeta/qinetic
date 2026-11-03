@@ -7,6 +7,12 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
+### Changed
+
+- Requires qilat v0.2.2, which validates HTTP/1.1 request headers in one pass and sends a response with a
+  Content-Length without buffering its body first. Qinetic always sets Content-Length, so its responses take
+  that path; header changes after the response is committed still have no effect, as before.
+
 ## [0.1.0] - 2026-11-02
 
 The first release: a Fiber-style framework on qilat, serving HTTP/1.1, HTTP/2, and HTTP/3 from one `App`.
