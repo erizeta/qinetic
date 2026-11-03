@@ -15,7 +15,7 @@ middleware.
 ## Status
 
 Qinetic is pre-1.0: until v1.0.0, a minor version may change the API, with what to change listed in the
-[changelog](CHANGELOG.md). It pins qilat v0.2.1. Coming from Fiber? See
+[changelog](CHANGELOG.md). It pins qilat v0.2.2. Coming from Fiber? See
 [docs/migrating-from-fiber.md](docs/migrating-from-fiber.md).
 
 ## Installation
@@ -404,28 +404,31 @@ of sending them. Bind errors are 400s that never include decoder output.
 ## Performance
 
 `benchmarks/` compares plain qilat (its `ServeMux` and `qilat.Chain`), Qinetic, and Fiber v3.6.1 on the same
-scenarios and the same keep-alive HTTP/1.1 client, with 8 connections per GOMAXPROCS. In memory, the listener
-skips the kernel, so the numbers show server CPU per request; over loopback, the socket path dominates.
-Median of 5 runs on an Apple M5 (10 cores), Go 1.27.3, in ns/op:
+scenarios with the same minimal keep-alive HTTP/1.1 client, 8 connections per GOMAXPROCS. Fiber gets a 10 s
+read timeout and a 120 s idle timeout, as qilat applies by default, so all three pay for the same slowloris
+protection; without them Fiber skips a per-request deadline and looks about 35% faster in memory. In memory, the
+listener skips the kernel, so the numbers show server CPU per request; over loopback, the socket path
+dominates. Median of 10 runs on an Apple M5 (10 cores), Go 1.27.3, qilat v0.2.2, in ns/op:
 
 | Scenario | In memory: qilat | Qinetic | Fiber | Loopback: qilat | Qinetic | Fiber |
 |---|---|---|---|---|---|---|
-| Plaintext | 523 | 510 | 360 | 5779 | 5881 | 6572 |
-| JSON | 479 | 565 | 408 | 5878 | 5876 | 6355 |
-| Param route | 441 | 520 | 366 | 5901 | 5895 | 6432 |
-| Last of 100 routes | 457 | 519 | 375 | 5908 | 5854 | 6538 |
-| 5 middleware | 437 | 533 | 373 | 5906 | 5891 | 6551 |
+| Plaintext | 253 | 249 | 240 | 5862 | 5856 | 6488 |
+| JSON | 292 | 284 | 280 | 5832 | 5843 | 6723 |
+| Param route | 255 | 249 | 244 | 5886 | 5888 | 6484 |
+| Last of 100 routes | 262 | 256 | 250 | 5882 | 5884 | 6557 |
+| 5 middleware | 249 | 259 | 235 | 5876 | 5902 | 6508 |
 
-fasthttp spends less CPU per request than qilat, so Fiber leads in memory; over a real socket, in this setup,
-qilat and Qinetic are ahead and Qinetic costs no measurable time over qilat. Every framework allocates about
-10 times per request here, nearly all of it in the benchmark client. On its own side, a static, parameter, or
-wildcard hello route allocates nothing beyond qilat (`TestHelloAllocs`), and route matching allocates
-nothing (`BenchmarkRouterMatch`).
+In memory, Fiber spends 1–4% less CPU per request, and 9% less through five middleware; over a real socket,
+in this setup, Qinetic is about 10% faster than Fiber. Qinetic costs no measurable time over plain qilat.
+The client allocates nothing, so allocations are the server's: Qinetic makes none for plaintext and the route
+lookups, one for the copied `Params` string, and two for `json.Marshal`. A static, parameter, or wildcard hello
+route allocates nothing beyond qilat (`TestHelloAllocs`), and route matching allocates nothing
+(`BenchmarkRouterMatch`).
 
 Reproduce with:
 
 ```sh
-cd benchmarks && go test -run '^$' -bench BenchmarkCompare -benchmem -count 5 .
+cd benchmarks && go test -run '^$' -bench BenchmarkCompare -benchmem -count 10 .
 ```
 
 `make bench` runs these and the router and baseline benchmarks.
