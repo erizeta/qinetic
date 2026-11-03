@@ -7,6 +7,8 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-03
+
 ### Changed
 
 - Requires qilat v0.2.2, which validates HTTP/1.1 request headers in one pass and sends a response with a
@@ -74,5 +76,6 @@ lists what differs from Fiber v3.
 - `c.Bind()` with `JSON`, `XML`, `Form`, `Query`, and `Body`. Form and query keys match `form`/`query` tags,
   or field names, case-insensitively as in Fiber; malformed input is a 400 that never includes decoder output.
 
-[Unreleased]: https://github.com/erizeta/qinetic/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/erizeta/qinetic/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/erizeta/qinetic/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/erizeta/qinetic/releases/tag/v0.1.0
