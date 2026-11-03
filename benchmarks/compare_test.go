@@ -113,7 +113,9 @@ func serveQineticCompare(tb testing.TB, ln net.Listener) func() {
 }
 
 func serveFiberCompare(tb testing.TB, ln net.Listener) func() {
-	app := fiber.New()
+	// Fiber has no read timeout by default; qilat bounds every request header (ReadHeaderTimeout, 10 s) and
+	// idle connection (120 s). Matching them makes all three pay for the same slowloris protection.
+	app := fiber.New(fiber.Config{ReadTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second})
 	app.Get("/plaintext", func(c fiber.Ctx) error { return c.SendString(helloBody) })
 	app.Get("/json", func(c fiber.Ctx) error { return c.JSON(message{Message: helloBody}) })
 	app.Get("/users/:id", func(c fiber.Ctx) error { return c.SendString(c.Params("id")) })

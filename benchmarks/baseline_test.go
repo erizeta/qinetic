@@ -2,6 +2,7 @@ package benchmarks
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -73,11 +75,13 @@ func startQilat(tb testing.TB, h qilat.Handler) string {
 	return ln.Addr().String()
 }
 
-// h1Conn is a keep-alive HTTP/1.1 client without net/http's transport, which would dominate the profile.
+// h1Conn is a minimal keep-alive HTTP/1.1 client, so the measured cost is the server's: it parses only the
+// status line and Content-Length, and reads the body into a reused buffer.
 type h1Conn struct {
 	conn net.Conn
 	br   *bufio.Reader
 	req  []byte
+	body []byte
 }
 
 func dialH1(addr, path string) (*h1Conn, error) {
@@ -96,18 +100,40 @@ func (c *h1Conn) roundTrip(body io.Writer) error {
 	if _, err := c.conn.Write(c.req); err != nil {
 		return err
 	}
-	resp, err := http.ReadResponse(c.br, nil)
+	line, err := c.br.ReadSlice('\n')
 	if err != nil {
-		return err
+		return fmt.Errorf("read status line: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("status %d", resp.StatusCode)
+	if !bytes.HasPrefix(line, []byte("HTTP/1.1 200 ")) {
+		return fmt.Errorf("unexpected status line %q", bytes.TrimSpace(line))
 	}
-	if resp.ContentLength < 0 {
-		return errors.New("response is chunked, want Content-Length")
+	contentLength := -1
+	for {
+		if line, err = c.br.ReadSlice('\n'); err != nil {
+			return fmt.Errorf("read header: %w", err)
+		}
+		line = bytes.TrimRight(line, "\r\n")
+		if len(line) == 0 {
+			break
+		}
+		name, value, ok := bytes.Cut(line, []byte(":"))
+		if ok && bytes.EqualFold(name, []byte("Content-Length")) {
+			if contentLength, err = strconv.Atoi(string(bytes.TrimSpace(value))); err != nil {
+				return fmt.Errorf("bad Content-Length %q", value)
+			}
+		}
 	}
-	_, err = io.Copy(body, resp.Body)
+	if contentLength < 0 {
+		return errors.New("response without Content-Length, want no chunked encoding")
+	}
+	if cap(c.body) < contentLength {
+		c.body = make([]byte, contentLength)
+	}
+	c.body = c.body[:contentLength]
+	if _, err := io.ReadFull(c.br, c.body); err != nil {
+		return fmt.Errorf("read body: %w", err)
+	}
+	_, err = body.Write(c.body)
 	return err
 }
 
