@@ -7,6 +7,11 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
+### Changed
+
+- Requires qilat v0.2.4, which moves to quic-go v0.65.0 (fixes for HTTP/3 and connection migration) and
+  golang.org/x/net v0.63.0. Qinetic's API and behavior are unchanged.
+
 ## [0.1.1] - 2026-11-03
 
 ### Changed
