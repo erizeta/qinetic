@@ -7,6 +7,8 @@ changes, each listed with what to change.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-27
+
 ### Changed
 
 - Requires qilat v0.2.4, which moves to quic-go v0.65.0 (fixes for HTTP/3 and connection migration) and
@@ -81,6 +83,7 @@ lists what differs from Fiber v3.
 - `c.Bind()` with `JSON`, `XML`, `Form`, `Query`, and `Body`. Form and query keys match `form`/`query` tags,
   or field names, case-insensitively as in Fiber; malformed input is a 400 that never includes decoder output.
 
-[Unreleased]: https://github.com/erizeta/qinetic/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/erizeta/qinetic/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/erizeta/qinetic/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/erizeta/qinetic/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/erizeta/qinetic/releases/tag/v0.1.0
